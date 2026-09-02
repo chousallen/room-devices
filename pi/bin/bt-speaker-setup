@@ -1,0 +1,10 @@
+#!/bin/bash
+# Make the Pi behave like a Bluetooth speaker: powered, always discoverable and pairable.
+# Waits for the adapter (hci0) that the kernel brings up (dtparam=krnbt=on).
+set -euo pipefail
+for i in $(seq 1 60); do [[ -e /sys/class/bluetooth/hci0 ]] && break; sleep 2; done
+[[ -e /sys/class/bluetooth/hci0 ]] || { echo "no hci0 after 120 s" >&2; exit 1; }
+bluetoothctl power on
+bluetoothctl system-alias "sallen-pi speaker"
+bluetoothctl discoverable on
+bluetoothctl pairable on

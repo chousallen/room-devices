@@ -39,3 +39,11 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - Pi audio state: `wpctl status`, `pactl list sink-inputs`, `journalctl --user -u wireplumber`.
 - Rebuild Moonlight on the laptop:
   `cd /media/sallen/SSD-Programs/room-devices-build && docker build --platform linux/arm64 -t moonlight-pi-build . && docker run --rm --platform linux/arm64 -v $PWD/out:/out moonlight-pi-build`
+
+## Sunshine / Moonlight pairing (laptop)
+- `sunshine --creds USER PASS` writes credentials, but the running service must be
+  restarted before the web UI/API stops redirecting to `/welcome`.
+- Headless pairing from the Pi: `QT_QPA_PLATFORM=offscreen moonlight-qt pair <laptop> --pin 4321`
+  in the background, then `curl -k -u USER:PASS -X POST https://<laptop>:47990/api/pin -d '{"pin":"4321","name":"sallen-pi"}'`.
+  The pair command hangs after success (kill it); `moonlight-qt list <laptop>` confirms.
+- Web UI credentials are in `build/out/sunshine-creds.txt` on the Pi (not committed).

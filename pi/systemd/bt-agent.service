@@ -1,0 +1,14 @@
+# Accept Bluetooth pairing from phones without a keyboard/screen (A2DP speaker role).
+[Unit]
+Description=Bluetooth speaker agent (auto-accept pairing)
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+ExecStartPre=/usr/local/bin/bt-speaker-setup
+ExecStart=/usr/bin/bt-agent -c NoInputNoOutput
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
