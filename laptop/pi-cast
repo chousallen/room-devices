@@ -1,0 +1,25 @@
+#!/bin/bash
+# Play a local file or a URL on the room monitor + speaker (drives `pi-play` on the Pi).
+# Usage: pi-cast <file|url>   |   pi-cast stop
+# Local files are served to the Pi over a temporary HTTP server on this laptop (seekable,
+# nothing copied to the Pi). The server stays up until playback ends or you press Ctrl-C.
+set -euo pipefail
+PI=${PI_HOST:-sallen@192.168.0.101}
+PORT=${PI_CAST_PORT:-8765}
+case "${1:-}" in
+  stop) exec ssh "$PI" pi-play stop ;;
+  http://*|https://*|rtsp://*|rtmp://*) exec ssh "$PI" pi-play "$(printf %q "$1")" ;;
+  "") echo "usage: pi-cast <file|url> | pi-cast stop" >&2; exit 2 ;;
+esac
+f=$(realpath "$1"); [[ -f "$f" ]] || { echo "no such file: $1" >&2; exit 1; }
+myip=$(ip route get "${PI#*@}" | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+tmp=$(mktemp -d); ln -s "$f" "$tmp/media"
+python3 -m http.server "$PORT" --bind "$myip" --directory "$tmp" >/dev/null 2>&1 &
+srv=$!
+cleanup() { kill "$srv" 2>/dev/null || true; rm -rf "$tmp"; }
+trap cleanup EXIT INT TERM
+sleep 0.5
+ssh "$PI" pi-play "http://$myip:$PORT/media"
+echo "serving $(basename "$f") to the Pi; Ctrl-C or 'pi-cast stop' to end"
+while ssh "$PI" systemctl is-active --quiet pi-player.service; do sleep 5; done
+echo "playback ended"

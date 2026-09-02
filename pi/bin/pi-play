@@ -1,0 +1,20 @@
+#!/bin/bash
+# Play a file/URL on the room monitor + speaker. Usage: pi-play <path|url> | pi-play stop
+# Web pages (YouTube etc.) are resolved with yt-dlp to a direct media URL first.
+set -euo pipefail
+if [[ "${1:-}" == "stop" ]]; then sudo systemctl stop pi-player.service; exit 0; fi
+[[ $# -eq 1 ]] || { echo "usage: pi-play <path|url> | pi-play stop" >&2; exit 2; }
+uri="$1"
+YTDLP=$(command -v yt-dlp || echo "$HOME/.local/bin/yt-dlp")
+if [[ "$uri" =~ ^https?:// ]] && ! [[ "$uri" =~ \.(mp4|mkv|webm|mov|m3u8|mp3|flac|ogg|opus|wav)(\?|$) ]] && ! [[ "$uri" =~ /media$ ]]; then
+  if [[ -x "$YTDLP" ]]; then
+    # best single stream up to 1080p that GStreamer can play without merging separate a/v files
+    uri=$("$YTDLP" -g -f 'best[height<=1080][vcodec^=avc1]/best[height<=1080]/best' "$uri" | head -1)
+  fi
+elif [[ ! "$uri" =~ ^[a-z]+:// ]]; then
+  uri="file://$(realpath "$uri")"
+fi
+sudo mkdir -p /run/pi-player
+printf 'PI_PLAY_URI=%s\n' "$uri" | sudo tee /run/pi-player/env >/dev/null
+sudo systemctl restart pi-player.service
+echo "playing: $uri  (pi-play stop to end)"

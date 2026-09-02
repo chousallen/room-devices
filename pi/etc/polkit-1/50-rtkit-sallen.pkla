@@ -1,0 +1,6 @@
+[Allow RealtimeKit for the headless audio user]
+Identity=unix-user:sallen
+Action=org.freedesktop.RealtimeKit1.acquire-high-priority;org.freedesktop.RealtimeKit1.acquire-real-time;org.freedesktop.RealtimeKit1.make-thread-realtime;org.freedesktop.RealtimeKit1.make-thread-high-priority;org.freedesktop.RealtimeKit1.make-thread-realtime-with-pid;org.freedesktop.RealtimeKit1.make-thread-high-priority-with-pid
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

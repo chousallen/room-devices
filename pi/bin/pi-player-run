@@ -1,0 +1,6 @@
+#!/bin/bash
+# Runs inside pi-player.service. $PI_PLAY_URI is set by `pi-play`.
+# playbin3 picks v4l2h264dec / v4l2slh265dec (hardware) by rank; kmssink draws straight to
+# the HDMI connector; pipewiresink hands audio to the mixer. GStreamer keeps A/V in sync.
+set -euo pipefail
+exec gst-play-1.0 --videosink="kmssink" --audiosink="pipewiresink" --no-interactive "${PI_PLAY_URI}"
