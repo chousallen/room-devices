@@ -7,7 +7,7 @@ U=${SUDO_USER:-$USER}; H=$(getent passwd "$U" | cut -d: -f6)
 echo "== packages"
 sudo apt-get install -y --no-install-recommends pipewire pipewire-pulse wireplumber pipewire-audio-client-libraries \
   libspa-0.2-bluetooth pulseaudio-utils bluez bluez-tools \
-  gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pipewire \
+  gstreamer1.0-tools gstreamer1.0-plugins-base-apps gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pipewire \
   qt6-qpa-plugins
 sudo apt-get remove -y pipewire-media-session 2>/dev/null || true
 
