@@ -39,8 +39,19 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - **Overlay order matters**: `dtoverlay=` lines must come *after* `dtparam=audio=on`. Putting
   the KMS overlay in the first `[pi4]` block (above the dtparams) made the "bcm2835 Headphones"
   ALSA card disappear entirely (no `/proc/device-tree/soc/audio`). See `pi/etc/config.txt`.
-- HEVC hardware decode needs `dtoverlay=rpivid-v4l2` (creates `/dev/video19`, GStreamer
-  `v4l2slh265dec`). H.264 (`/dev/video10`, `v4l2h264dec`) works without it.
+- HEVC: `dtoverlay=rpivid-v4l2` loads `rpivid_hevc` (`/dev/video19`), but jammy's GStreamer 1.20
+  `v4l2codecs` plugin registers **0 elements** on this kernel (stateless HEVC support arrived in
+  GStreamer 1.22), so **no HEVC hardware playback on the Pi**; play HEVC via Moonlight instead.
+  H.264 (`/dev/video10`, `v4l2h264dec`, stateful) works: 1080p30 @ 8 Mbps plays at 30 fps with
+  no drops via `kmssink`; a 27 Mbps 1080p60 clip drops ~10% (decoder/copy limit).
+- Moonlight (Cloudsmith 6.1.0 jammy arm64) on this Pi: decoder `h264_v4l2m2m` on `/dev/video10`,
+  "DrmRenderer", NV12 drm_prime zero-copy. Its bundled FFmpeg probes `hevc_v4l2request` and falls
+  back to H.264. Stream settings live in `~/.config/Moonlight Game Streaming Project/Moonlight.conf`
+  `[streaming]` (set to 1920x1080, 60 fps, 20000 kbps); the `stream` CLI defaults to 720p.
+- Only one process can own the display (DRM master): `pi-player.service` and `moonlight.service`
+  carry `Conflicts=`; the player's `ExecStopPost=+systemctl start moonlight` needs the `+`
+  (root) prefix or it fails with "Interactive authentication required".
+- Moonlight logs go to the journal by process (`journalctl _COMM=moonlight-qt`), not the unit.
 - `cmdline.txt` has `video=HDMI-A-1:1920x1080@60D` so HDMI0 is treated as connected even when
   the monitor is off/asleep (the monitor is shared with the laptop). HDMI0 = port next to USB-C.
 - Moonlight: the Cloudsmith `moonlight-qt` jammy arm64 package is Qt 6 and does **not** pull
@@ -51,6 +62,8 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 
 ## Commands
 - Pi audio state: `wpctl status`, `pactl list sink-inputs`, `journalctl --user -u wireplumber`.
+- `pi-cast` serves laptop files with a byte-range capable Python server; `python3 -m http.server`
+  has no Range support and GStreamer's `souphttpsrc` refuses MP4 without it. Port 8765.
 - Rebuild Moonlight on the laptop:
   `cd /media/sallen/SSD-Programs/room-devices-build && docker build --platform linux/arm64 -t moonlight-pi-build . && docker run --rm --platform linux/arm64 -v $PWD/out:/out moonlight-pi-build`
 

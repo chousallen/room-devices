@@ -13,10 +13,39 @@ case "${1:-}" in
 esac
 f=$(realpath "$1"); [[ -f "$f" ]] || { echo "no such file: $1" >&2; exit 1; }
 myip=$(ip route get "${PI#*@}" | awk '{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+if ss -tln 2>/dev/null | grep -q ":$PORT "; then echo "port $PORT is busy (old pi-cast still running?); set PI_CAST_PORT to another port" >&2; exit 1; fi
 tmp=$(mktemp -d); ln -s "$f" "$tmp/media"
-python3 -m http.server "$PORT" --bind "$myip" --directory "$tmp" >/dev/null 2>&1 &
+# Minimal HTTP server with byte-range support (python's http.server has none; GStreamer needs it for MP4).
+python3 - "$PORT" "$myip" "$tmp" >/dev/null 2>&1 <<'PY' &
+import os, sys, http.server, socketserver
+port, host, root = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+class H(http.server.SimpleHTTPRequestHandler):
+    def __init__(s, *a, **k): super().__init__(*a, directory=root, **k)
+    def log_message(s, *a): pass
+    def do_GET(s):
+        path = s.translate_path(s.path)
+        if not os.path.isfile(path): s.send_error(404); return
+        size = os.path.getsize(path); start, end = 0, size - 1; rng = s.headers.get('Range')
+        if rng and rng.startswith('bytes='):
+            a, _, b = rng[6:].partition('-'); start = int(a or 0); end = int(b) if b else size - 1
+            if start >= size: s.send_response(416); s.send_header('Content-Range', f'bytes */{size}'); s.end_headers(); return
+            s.send_response(206); s.send_header('Content-Range', f'bytes {start}-{end}/{size}')
+        else: s.send_response(200)
+        s.send_header('Accept-Ranges', 'bytes'); s.send_header('Content-Type', 'application/octet-stream')
+        s.send_header('Content-Length', str(end - start + 1)); s.end_headers()
+        with open(path, 'rb') as fh:
+            fh.seek(start); left = end - start + 1
+            while left > 0:
+                chunk = fh.read(min(1 << 20, left))
+                if not chunk: break
+                try: s.wfile.write(chunk)
+                except BrokenPipeError: return
+                left -= len(chunk)
+class S(socketserver.ThreadingMixIn, http.server.HTTPServer): daemon_threads = True; allow_reuse_address = True
+S((host, port), H).serve_forever()
+PY
 srv=$!
-cleanup() { kill "$srv" 2>/dev/null || true; rm -rf "$tmp"; }
+cleanup() { kill "$srv" 2>/dev/null || true; pkill -f "^python3 - $PORT $myip " 2>/dev/null || true; rm -rf "$tmp"; }
 trap cleanup EXIT INT TERM
 sleep 0.5
 ssh "$PI" pi-play "http://$myip:$PORT/media"

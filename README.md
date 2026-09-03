@@ -33,7 +33,10 @@ laptop and `output_name` set in Sunshine (GNOME 46 has no virtual-monitor tool).
 **Play a video on the monitor with the original quality.** From the laptop:
 `pi-cast movie.mkv` or `pi-cast https://youtu.be/...`; `pi-cast stop` ends it. This plays on
 the Pi itself with hardware decoding, so picture quality and lip-sync do not depend on the
-network. Moonlight is paused while a video plays and comes back afterwards.
+network. Moonlight is paused while a video plays and comes back afterwards. Files already on
+the Pi play with `pi-play /path/file.mkv` over SSH. **Limit:** only H.264 has hardware decoding
+on this Ubuntu 22.04 Pi (HEVC/H.265 files stutter); play HEVC content through Moonlight instead.
+Measured: 1080p30 H.264 at 8 Mbps plays with no dropped frames.
 
 **Phone audio.** Pair once with the Pi (it shows up as a Bluetooth speaker named `sallen-pi`);
 afterwards it reconnects on its own. Bluetooth adds roughly 150–250 ms of delay by design.

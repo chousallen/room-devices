@@ -13,4 +13,4 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 EnvironmentFile=/run/pi-player/env
 ExecStart=/usr/local/bin/pi-player-run
 # When playback ends, hand the screen back to Moonlight.
-ExecStopPost=/bin/systemctl --no-block start moonlight.service
+ExecStopPost=+/bin/systemctl --no-block start moonlight.service
