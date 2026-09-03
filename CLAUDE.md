@@ -6,6 +6,13 @@ Laptop: `sallen@192.168.0.193`, Ubuntu 24.04, GNOME 46 Wayland, PipeWire 1.0.5, 
 Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is nearly full).
 
 ## Audio (PipeWire 0.3.48 + WirePlumber 0.4.8, stock jammy)
+- **The bcm2835 jack cannot run at small periods.** With the graph at 256 frames (5 ms) the sink
+  logged ~50 xruns/min (`pw-top` ERR 65 -> 1750 in 30 min) and *every* source stuttered; the
+  pulse tunnel's server-side queue then filled to `maxlength` 4 MB = ~21 s of delay. Triggers:
+  Moonlight's audio stream (asks 256) or any pulse client, because 0.3.48 floors the graph
+  quantum to a power of two (a 480-frame request becomes 256). Fix: `default.clock.min-quantum
+  = 1024` (+ `pulse.min.req/quantum = 1024/48000`); measured zero xruns at 1024 with Moonlight
+  streaming and under 4x CPU load. Live check: `pw-metadata -n settings 0` / `pw-top` ERR.
 - `apt update` was needed first: the universe index was missing, so `wireplumber`,
   `pipewire-pulse` etc. showed "Candidate: (none)".
 - Both bcm2835 ALSA cards get the *same* `node.name`/`device.name`; match on
