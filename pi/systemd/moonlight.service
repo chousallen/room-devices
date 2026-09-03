@@ -8,6 +8,10 @@ Wants=user@1000.service
 Conflicts=getty@tty7.service pi-player.service
 
 [Service]
+# the Pi is shared with other services; keep the decoder/pacer threads ahead of them
+Nice=-10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=0
 User=sallen
 Group=sallen
 SupplementaryGroups=video render input audio

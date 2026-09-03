@@ -52,6 +52,16 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   carry `Conflicts=`; the player's `ExecStopPost=+systemctl start moonlight` needs the `+`
   (root) prefix or it fails with "Interactive authentication required".
 - Moonlight logs go to the journal by process (`journalctl _COMM=moonlight-qt`), not the unit.
+- Moonlight's performance overlay (Ctrl+Alt+Shift+S) does **not** work with the DRM renderer on
+  the Pi (known upstream limitation); keyboard input itself is forwarded fine.
+- Mirroring latency was caused by CPU starvation on the Pi, not the network (RTT ~3 ms):
+  `/proc/pressure/cpu` some ~50 %, "Audio packet queue overflow" in Moonlight's log. Fixes:
+  `Nice=-10` in `moonlight*.service`, laptop Wi-Fi power save off
+  (`/etc/NetworkManager/conf.d/wifi-powersave.conf`), `app-net-monitor --interval 30`
+  (drop-in in `pi/etc/systemd/app-net-monitor.service.d/`; 5 s cost ~65 % of a core).
+- Do not `systemctl restart moonlight-stream`: its ExecStopPost starts the menu unit, which
+  `Conflicts=` the queued stream start and cancels it. Use `pi-screen stop` then `start`
+  (`pi-screen restart` does this).
 - `cmdline.txt` has `video=HDMI-A-1:1920x1080@60D` so HDMI0 is treated as connected even when
   the monitor is off/asleep (the monitor is shared with the laptop). HDMI0 = port next to USB-C.
 - Moonlight: the Cloudsmith `moonlight-qt` jammy arm64 package is Qt 6 and does **not** pull

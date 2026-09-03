@@ -11,6 +11,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now pi-speaker-watch.timer
 systemctl --user start pi-speaker-watch.service
 sleep 2; pactl list sinks short | grep pi_speaker || echo "pi_speaker not up yet (is the Pi on? checked every 20 s)"
+echo "== Wi-Fi power save off (latency spikes)"
+sudo install -m644 wifi-powersave.conf /etc/NetworkManager/conf.d/wifi-powersave.conf && sudo iw dev wlan0 set power_save off || true
 echo "== Sunshine (screen sender): installed from the LizardByte GitHub release .deb; see README"
 command -v sunshine >/dev/null && sunshine --version | head -1 || echo "sunshine not installed"
 echo "done"

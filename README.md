@@ -24,7 +24,7 @@ a lower value edit `LAT` in `~/.local/bin/pi-speaker-watch`, unload the current 
 Go back one step if you hear dropouts.
 
 **Laptop screen on the monitor.** From the laptop run `pi-screen start` (mirror this laptop on
-the room monitor) and `pi-screen stop` (back to the Moonlight menu). Moonlight's menu runs
+the room monitor), `pi-screen stop` (back to the Moonlight menu) or `pi-screen restart`. Moonlight's menu runs
 full-screen on the Pi's HDMI output (`moonlight.service`); with a keyboard/mouse on the Pi you
 can also pick the laptop there. Sunshine runs on the laptop
 (`app-dev.lizardbyte.app.Sunshine.service`, web UI https://localhost:47990). The stream carries

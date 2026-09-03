@@ -20,7 +20,8 @@ install -m644 config/wireplumber/bluetooth.lua.d/*.lua "$H/.config/wireplumber/b
 
 echo "== system files"
 sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthority/50-local.d/50-rtkit-sallen.pkla
-sudo install -d /etc/systemd/system/hciuart.service.d
+sudo install -d /etc/systemd/system/hciuart.service.d /etc/systemd/system/app-net-monitor.service.d
+sudo install -m644 etc/systemd/app-net-monitor.service.d/interval.conf /etc/systemd/system/app-net-monitor.service.d/ 2>/dev/null || true
 sudo install -m644 etc/systemd/hciuart.service.d/override.conf /etc/systemd/system/hciuart.service.d/override.conf
 sudo install -m644 etc/bluetooth/main.conf /etc/bluetooth/main.conf
 sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service /etc/systemd/system/
