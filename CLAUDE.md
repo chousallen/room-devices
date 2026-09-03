@@ -5,22 +5,43 @@ No desktop. User `sallen` has `Linger=yes`, so PipeWire user services run withou
 Laptop: `sallen@192.168.0.193`, Ubuntu 24.04, GNOME 46 Wayland, PipeWire 1.0.5, on Wi-Fi.
 Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is nearly full).
 
-## Audio (PipeWire 0.3.48 + WirePlumber 0.4.8, stock jammy)
+## Audio (PipeWire 1.0.7 from ppa:pipewire-debian/pipewire-upstream + stock WirePlumber 0.4.8)
+- The PPA upgrade (0.3.48 -> 1.0.7) went through `apt-get install pipewire pipewire-pulse
+  libspa-0.2-bluetooth pipewire-audio-client-libraries gstreamer1.0-pipewire pipewire-alsa` with
+  no removals; WirePlumber 0.4.8 keeps working with it (the PPA has no wireplumber for jammy).
+  Rollback: `build/out/pre-ppa/packages.txt` + `ppa-purge`. Realtime still comes via RTKit
+  (thread `pw-data-loop` at RR 20); `ps -eLo cls,rtprio,comm` shows the main thread as TS.
+- Laptop -> Pi audio is **PipeWire RTP**, not the pulse tunnel: laptop `module-rtp-sink`
+  (`laptop/60-pi-speaker-rtp.conf`, unicast S16BE to UDP 46000) -> Pi `module-rtp-source` in
+  its own process, user unit `rtp-speaker.service` running `pipewire -c rtp-speaker.conf`.
+  It must start *after* WirePlumber has the ALSA sink: loading rtp-source from the main
+  daemon's `pipewire.conf.d` fails at boot with "stream error: no node available" and the
+  module is gone (UDP port never opens). `sess.latency.msec = 200` (100 dipped 3x/2 min on
+  Wi-Fi; 200 zero). `sess.ignore-ssrc = true` so laptop restarts keep working.
+- The pulse tunnel (laptop 1.0.5 `module-pulse-tunnel`/`module-tunnel-sink`) was abandoned:
+  once its buffer drifted it underflowed **every 2 s** (`mod.pulse-tunnel: underflow`), against
+  both the 0.3.48 and the 1.0.7 server, with 0 % loss / 3 ms RTT. Only latency_msec=400
+  (~150 ms real buffer) was gap-free. Details kept below for reference.
 - **The bcm2835 jack cannot run at small periods.** With the graph at 256 frames (5 ms) the sink
   logged ~50 xruns/min (`pw-top` ERR 65 -> 1750 in 30 min) and *every* source stuttered; the
   pulse tunnel's server-side queue then filled to `maxlength` 4 MB = ~21 s of delay. Triggers:
   Moonlight's audio stream (asks 256) or any pulse client, because 0.3.48 floors the graph
   quantum to a power of two (a 480-frame request becomes 256). Fix: `default.clock.min-quantum
-  = 1024` (+ `pulse.min.req/quantum = 1024/48000`); measured zero xruns at 1024 with Moonlight
-  streaming and under 4x CPU load. Live check: `pw-metadata -n settings 0` / `pw-top` ERR.
+  = 1024` (+ `pulse.min.req/quantum = 1024/48000`); measured zero xruns at 1024 under 4x CPU
+  load, and 3 in 2 min (all when streams joined) with Moonlight + RTP + a local tone. Moonlight's
+  "Audio packet queue overflow" was 0/2 min at both 512 and 1024 once CPU pressure was normal; the
+  bursts seen at 1024 coincided with PipeWire restarts. Live check: `pw-metadata -n settings 0`
+  (a PipeWire restart resets live metadata to the config) / `pw-top` ERR column (cumulative).
 - `apt update` was needed first: the universe index was missing, so `wireplumber`,
   `pipewire-pulse` etc. showed "Candidate: (none)".
 - Both bcm2835 ALSA cards get the *same* `node.name`/`device.name`; match on
   `api.alsa.card.name` ("bcm2835 Headphones", "bcm2835 HDMI 1").
 - `["node.disabled"] = true` in a WirePlumber 0.4.8 alsa rule breaks routing for *all*
   streams ("no node available"). Use `["device.disabled"] = true` on the device instead.
-- `pipewire-pulse.conf.d/*.conf` fragments do **not** override `pulse.properties` in 0.3.48;
-  the full `pipewire-pulse.conf` is copied to `~/.config/pipewire/` and edited.
+- `pipewire-pulse.conf.d/*.conf` fragments did **not** override `pulse.properties` in 0.3.48
+  (a full `pipewire-pulse.conf` copy was needed). With 1.0.7 the drop-in
+  `pipewire-pulse.conf.d/20-network.conf` works and the full copy must be **removed**, or it
+  overrides the 1.0 default config.
 - RTKit refused realtime for the headless user (no local seat). Fixed with a polkit `.pkla`
   allowing `org.freedesktop.RealtimeKit1.*` for `sallen` (`pi/etc/polkit-1/`).
 - Laptop side: a static `libpipewire-module-pulse-tunnel` entry in `pipewire.conf.d` fails at

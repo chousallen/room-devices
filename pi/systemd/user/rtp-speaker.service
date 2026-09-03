@@ -1,0 +1,18 @@
+# User unit (~/.config/systemd/user/): RTP receiver for the laptop's audio -> room speaker.
+# Waits until WirePlumber has created the speaker sink, otherwise the receiving stream has no
+# target and errors out ("no node available").
+[Unit]
+Description=Laptop audio over RTP -> room speaker (PipeWire rtp-source)
+After=pipewire.service wireplumber.service
+Requires=pipewire.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'pw-cli ls Node | grep -q alsa_output.room_speaker'
+ExecStart=/usr/bin/pipewire -c rtp-speaker.conf
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target
