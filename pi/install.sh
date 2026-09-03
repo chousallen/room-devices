@@ -23,8 +23,8 @@ sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthorit
 sudo install -d /etc/systemd/system/hciuart.service.d
 sudo install -m644 etc/systemd/hciuart.service.d/override.conf /etc/systemd/system/hciuart.service.d/override.conf
 sudo install -m644 etc/bluetooth/main.conf /etc/bluetooth/main.conf
-sudo install -m644 systemd/moonlight.service systemd/pi-player.service systemd/bt-agent.service /etc/systemd/system/
-sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup /usr/local/bin/
+sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service /etc/systemd/system/
+sudo install -m755 bin/pi-play bin/pi-player-run bin/pi-screen bin/bt-speaker-setup /usr/local/bin/
 sudo systemctl daemon-reload
 sudo systemctl disable hciuart 2>/dev/null || true      # kernel (krnbt) handles Bluetooth
 sudo systemctl enable bluetooth bt-agent

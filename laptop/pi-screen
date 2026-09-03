@@ -1,0 +1,4 @@
+#!/bin/bash
+# From the laptop: pi-screen start  -> the room monitor mirrors this laptop (Sunshine -> Moonlight)
+#                  pi-screen stop   -> back to the Moonlight menu on the monitor
+exec ssh "${PI_HOST:-sallen@192.168.0.101}" pi-screen "${1:-status}"

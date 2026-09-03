@@ -23,8 +23,10 @@ a lower value edit `LAT` in `~/.local/bin/pi-speaker-watch`, unload the current 
 (`pactl unload-module $(pactl list modules short | grep tunnel-sink | cut -f1)`) and wait 20 s.
 Go back one step if you hear dropouts.
 
-**Laptop screen on the monitor.** Moonlight runs full-screen on the Pi's HDMI output
-(`moonlight.service`). Pick the laptop in its list. Sunshine runs on the laptop
+**Laptop screen on the monitor.** From the laptop run `pi-screen start` (mirror this laptop on
+the room monitor) and `pi-screen stop` (back to the Moonlight menu). Moonlight's menu runs
+full-screen on the Pi's HDMI output (`moonlight.service`); with a keyboard/mouse on the Pi you
+can also pick the laptop there. Sunshine runs on the laptop
 (`app-dev.lizardbyte.app.Sunshine.service`, web UI https://localhost:47990). The stream carries
 the laptop's audio too, so **do not also select "Room-speaker-Pi" while streaming**, or you
 hear everything twice. Extended-desktop (second monitor) mode needs a dummy HDMI/DP plug on the

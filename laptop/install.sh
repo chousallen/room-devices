@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 echo "== Pi speaker as an output device (watchdog-managed pulse tunnel)"
 rm -f ~/.config/pipewire/pipewire.conf.d/60-pi-speaker.conf   # old static variant
 install -d ~/.local/bin ~/.config/systemd/user
-install -m755 pi-speaker-watch pi-cast ~/.local/bin/
+install -m755 pi-speaker-watch pi-cast pi-screen ~/.local/bin/
 install -m644 pi-speaker-watch.service pi-speaker-watch.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now pi-speaker-watch.timer

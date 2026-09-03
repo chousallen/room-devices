@@ -1,0 +1,8 @@
+#!/bin/bash
+# Mirror the laptop screen on the room monitor.  pi-screen start | stop | status
+case "${1:-}" in
+  start)  sudo systemctl start moonlight-stream.service ;;
+  stop)   sudo systemctl stop moonlight-stream.service ;;
+  status) systemctl is-active moonlight-stream.service moonlight.service | paste -sd' ' | sed 's/^/stream menu: /' ;;
+  *) echo "usage: pi-screen start|stop|status" >&2; exit 2 ;;
+esac
