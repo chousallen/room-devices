@@ -47,7 +47,9 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - Moonlight (Cloudsmith 6.1.0 jammy arm64) on this Pi: decoder `h264_v4l2m2m` on `/dev/video10`,
   "DrmRenderer", NV12 drm_prime zero-copy. Its bundled FFmpeg probes `hevc_v4l2request` and falls
   back to H.264. Stream settings live in `~/.config/Moonlight Game Streaming Project/Moonlight.conf`
-  `[streaming]` (set to 1920x1080, 60 fps, 20000 kbps); the `stream` CLI defaults to 720p.
+  `[streaming]`; the `stream` CLI ignores them and defaults to 720p, so `moonlight-stream.service`
+  passes flags: 1920x1080, **30 fps, 35000 kbps** (Sunshine keeps ~27 Mbps for video). Sharpness
+  needs the laptop panel set to 1920x1080 too, or Sunshine downscales 1200→1080 and blurs text.
 - Only one process can own the display (DRM master): `pi-player.service` and `moonlight.service`
   carry `Conflicts=`; the player's `ExecStopPost=+systemctl start moonlight` needs the `+`
   (root) prefix or it fails with "Interactive authentication required".
