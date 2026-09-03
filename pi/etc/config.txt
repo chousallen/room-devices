@@ -5,10 +5,6 @@ initramfs initrd.img followkernel
 
 [pi4]
 max_framebuffers=2
-# room-devices: full KMS display driver so Moonlight/GStreamer can use the GPU + HDMI
-dtoverlay=vc4-kms-v3d
-# room-devices: let the kernel (hci_uart/btbcm) bring up the onboard Bluetooth; hciuart.service is disabled
-dtparam=krnbt=on
 arm_boost=1
 
 [all]
@@ -18,6 +14,14 @@ arm_boost=1
 dtparam=audio=on
 dtparam=i2c_arm=on
 dtparam=spi=on
+
+# room-devices: these must come AFTER the dtparam=audio/i2c/spi lines above, or the firmware
+# applies "audio=on" to the overlay instead of the base device tree and the 3.5 mm card vanishes.
+[pi4]
+dtparam=krnbt=on          # kernel brings up onboard Bluetooth (hciuart.service disabled)
+dtoverlay=vc4-kms-v3d     # full KMS display driver: /dev/dri for Moonlight and GStreamer
+dtoverlay=rpivid-v4l2        # HEVC (H.265) hardware decoder -> /dev/video19
+[all]
 
 # Comment out the following line if the edges of the desktop appear outside
 # the edges of your display

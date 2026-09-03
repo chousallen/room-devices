@@ -1,0 +1,8 @@
+[Unit]
+Description=Check every 20 s that the Room speaker (Pi) output exists
+[Timer]
+OnBootSec=15
+OnUnitActiveSec=20
+AccuracySec=5
+[Install]
+WantedBy=timers.target

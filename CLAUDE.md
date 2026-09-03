@@ -16,9 +16,14 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   the full `pipewire-pulse.conf` is copied to `~/.config/pipewire/` and edited.
 - RTKit refused realtime for the headless user (no local seat). Fixed with a polkit `.pkla`
   allowing `org.freedesktop.RealtimeKit1.*` for `sallen` (`pi/etc/polkit-1/`).
-- Laptop side: `libpipewire-module-pulse-tunnel` needs `flags = [ nofail ]` or laptop audio
-  breaks when the Pi is off. Its "failed to connect: Bad state" was the Pi-side routing bug
-  above, not a network problem.
+- Laptop side: a static `libpipewire-module-pulse-tunnel` entry in `pipewire.conf.d` fails at
+  laptop boot if the Pi is unreachable (needs `flags = [ nofail ]` or laptop audio breaks) and
+  never retries; it also vanishes when the Pi reboots. So the tunnel is created by
+  `laptop/pi-speaker-watch` (systemd user timer, every 20 s) via
+  `pactl load-module module-tunnel-sink ... latency_msec=80`. pipewire-pulse splits module
+  arguments on whitespace regardless of quoting, so `sink_properties=device.description=` cannot
+  contain spaces (hence "Room-speaker-Pi"). The module's
+  "failed to connect: Bad state" was the Pi-side `node.disabled` routing bug, not network.
 
 ## Bluetooth
 - `hciuart`/`hciattach` fails ("Initialization timed out") on this board even with the
@@ -27,8 +32,15 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `hciuart.service` is disabled.
 
 ## Display
-- `/boot/firmware/config.txt` `[pi4]` needs `dtoverlay=vc4-kms-v3d`; without it there is no
-  `/dev/dri` and nothing but the text console can draw.
+- `/boot/firmware/config.txt` needs `dtoverlay=vc4-kms-v3d` (in a `[pi4]` block); without it
+  there is no `/dev/dri` and nothing but the text console can draw.
+- **Overlay order matters**: `dtoverlay=` lines must come *after* `dtparam=audio=on`. Putting
+  the KMS overlay in the first `[pi4]` block (above the dtparams) made the "bcm2835 Headphones"
+  ALSA card disappear entirely (no `/proc/device-tree/soc/audio`). See `pi/etc/config.txt`.
+- HEVC hardware decode needs `dtoverlay=rpivid-v4l2` (creates `/dev/video19`, GStreamer
+  `v4l2slh265dec`). H.264 (`/dev/video10`, `v4l2h264dec`) works without it.
+- `cmdline.txt` has `video=HDMI-A-1:1920x1080@60D` so HDMI0 is treated as connected even when
+  the monitor is off/asleep (the monitor is shared with the laptop). HDMI0 = port next to USB-C.
 - Moonlight: the Cloudsmith `moonlight-qt` jammy arm64 package is Qt 6 and does **not** pull
   in a platform plugin; install `qt6-qpa-plugins` (eglfs, eglfs_kms). Ubuntu-on-Pi is
   unsupported upstream. A Qt 5 build from source (`build/Dockerfile`, arm64 emulation on the

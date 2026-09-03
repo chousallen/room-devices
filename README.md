@@ -5,7 +5,7 @@ on its 3.5 mm jack, and lets devices on the LAN use both.
 
 ```
 laptop desktop  --Sunshine-->  Moonlight on the Pi  -->  monitor (+ its audio into the mixer)
-laptop apps     --"Room speaker (Pi)" output device-->  PipeWire on the Pi --mix--> speaker
+laptop apps     --"Room-speaker-Pi" output device-->  PipeWire on the Pi --mix--> speaker
 Android phone   --Bluetooth (A2DP)------------------->        ^
 laptop/anything --pi-cast <file|url>--> GStreamer player on the Pi --> monitor + speaker
 ```
@@ -15,16 +15,18 @@ PipeWire on the Pi is the single mixer: every source above ends up as a stream o
 
 ## Daily use
 
-**Laptop audio to the speaker.** In GNOME Sound settings pick the output "Room speaker (Pi)"
-(node `pi_speaker`), or route a single app there with `pavucontrol`. Target delay is set by
-`pulse.latency` in `laptop/60-pi-speaker.conf` (80 ms; the laptop is on Wi-Fi). Lower it in
-steps of 20 and restart PipeWire (`systemctl --user restart pipewire`) until you hear dropouts,
-then go back one step.
+**Laptop audio to the speaker.** In GNOME Sound settings pick the output "Room-speaker-Pi"
+(node `pi_speaker`), or route a single app there with `pavucontrol`. A user timer
+(`pi-speaker-watch.timer`, every 20 s) creates the device whenever the Pi is reachable, so it
+also comes back after the Pi reboots. Target delay is 80 ms (the laptop is on Wi-Fi); to try
+a lower value edit `LAT` in `~/.local/bin/pi-speaker-watch`, unload the current tunnel
+(`pactl unload-module $(pactl list modules short | grep tunnel-sink | cut -f1)`) and wait 20 s.
+Go back one step if you hear dropouts.
 
 **Laptop screen on the monitor.** Moonlight runs full-screen on the Pi's HDMI output
 (`moonlight.service`). Pick the laptop in its list. Sunshine runs on the laptop
 (`app-dev.lizardbyte.app.Sunshine.service`, web UI https://localhost:47990). The stream carries
-the laptop's audio too, so **do not also select "Room speaker (Pi)" while streaming**, or you
+the laptop's audio too, so **do not also select "Room-speaker-Pi" while streaming**, or you
 hear everything twice. Extended-desktop (second monitor) mode needs a dummy HDMI/DP plug on the
 laptop and `output_name` set in Sunshine (GNOME 46 has no virtual-monitor tool).
 
