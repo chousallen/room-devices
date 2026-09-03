@@ -1,5 +1,0 @@
-[Unit]
-Description=Create the Room speaker (Pi) output device if missing
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/pi-speaker-watch

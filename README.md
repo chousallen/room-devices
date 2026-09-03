@@ -15,13 +15,16 @@ PipeWire on the Pi is the single mixer: every source above ends up as a stream o
 
 ## Daily use
 
-**Laptop audio to the speaker.** In GNOME Sound settings pick the output "Room-speaker-Pi"
-(node `pi_speaker`), or route a single app there with `pavucontrol`. A user timer
-(`pi-speaker-watch.timer`, every 20 s) creates the device whenever the Pi is reachable, so it
-also comes back after the Pi reboots. Target delay is 80 ms (the laptop is on Wi-Fi); to try
-a lower value edit `LAT` in `~/.local/bin/pi-speaker-watch`, unload the current tunnel
-(`pactl unload-module $(pactl list modules short | grep tunnel-sink | cut -f1)`) and wait 20 s.
-Go back one step if you hear dropouts.
+**Laptop audio to the speaker.** In GNOME Sound settings pick the output "Room speaker (Pi)"
+(node `pi_speaker`), or route a single app there with `pavucontrol`. The laptop sends the
+audio as PipeWire RTP (plain UDP to the Pi, port 46000); the Pi's `rtp-speaker.service`
+receives it into the mixer with a 200 ms jitter buffer, so the delay is a bit over 200 ms.
+UDP needs no connection, so the device is always there and nothing breaks when the Pi is off.
+Measured over two-minute runs: 100 ms buffer dipped 3 times, 200 ms never. To experiment, edit
+`sess.latency.msec` in `~/.config/pipewire/rtp-speaker.conf` on the Pi and
+`systemctl --user restart rtp-speaker`; dips show up as `underrun` lines in
+`journalctl --user -u rtp-speaker`. For lip-synced laptop video use Moonlight, which carries
+its own audio.
 
 **Laptop screen on the monitor.** From the laptop run `pi-screen start` (mirror this laptop on
 the room monitor), `pi-screen stop` (back to the Moonlight menu) or `pi-screen restart`. Moonlight's menu runs
