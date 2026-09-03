@@ -64,6 +64,9 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - Pi audio state: `wpctl status`, `pactl list sink-inputs`, `journalctl --user -u wireplumber`.
 - `pi-cast` serves laptop files with a byte-range capable Python server; `python3 -m http.server`
   has no Range support and GStreamer's `souphttpsrc` refuses MP4 without it. Port 8765.
+- YouTube via `pi-play`/yt-dlp (2026.08) fails: "No supported JavaScript runtime" (needs deno) and
+  `-g` single-file formats top out at 360p; proper support would need deno + a two-stream
+  (video+audio) GStreamer pipeline. Not done.
 - Rebuild Moonlight on the laptop:
   `cd /media/sallen/SSD-Programs/room-devices-build && docker build --platform linux/arm64 -t moonlight-pi-build . && docker run --rm --platform linux/arm64 -v $PWD/out:/out moonlight-pi-build`
 

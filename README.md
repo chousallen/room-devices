@@ -31,7 +31,9 @@ hear everything twice. Extended-desktop (second monitor) mode needs a dummy HDMI
 laptop and `output_name` set in Sunshine (GNOME 46 has no virtual-monitor tool).
 
 **Play a video on the monitor with the original quality.** From the laptop:
-`pi-cast movie.mkv` or `pi-cast https://youtu.be/...`; `pi-cast stop` ends it. This plays on
+`pi-cast movie.mkv` or `pi-cast https://host/video.mp4`; `pi-cast stop` ends it. YouTube-style
+pages are **not** supported yet (yt-dlp needs a JavaScript runtime, and 1080p comes as separate
+video and audio streams); watch those through Moonlight instead. This plays on
 the Pi itself with hardware decoding, so picture quality and lip-sync do not depend on the
 network. Moonlight is paused while a video plays and comes back afterwards. Files already on
 the Pi play with `pi-play /path/file.mkv` over SSH. **Limit:** only H.264 has hardware decoding
