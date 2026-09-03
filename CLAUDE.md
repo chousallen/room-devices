@@ -34,6 +34,8 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 ## Display
 - `/boot/firmware/config.txt` needs `dtoverlay=vc4-kms-v3d` (in a `[pi4]` block); without it
   there is no `/dev/dri` and nothing but the text console can draw.
+- `config.txt` has **no inline comments**: text after `dtoverlay=name` becomes part of the name and
+  the overlay is silently skipped. Comments go on their own line.
 - **Overlay order matters**: `dtoverlay=` lines must come *after* `dtparam=audio=on`. Putting
   the KMS overlay in the first `[pi4]` block (above the dtparams) made the "bcm2835 Headphones"
   ALSA card disappear entirely (no `/proc/device-tree/soc/audio`). See `pi/etc/config.txt`.

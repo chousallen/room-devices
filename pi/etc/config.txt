@@ -18,9 +18,12 @@ dtparam=spi=on
 # room-devices: these must come AFTER the dtparam=audio/i2c/spi lines above, or the firmware
 # applies "audio=on" to the overlay instead of the base device tree and the 3.5 mm card vanishes.
 [pi4]
-dtparam=krnbt=on          # kernel brings up onboard Bluetooth (hciuart.service disabled)
-dtoverlay=vc4-kms-v3d     # full KMS display driver: /dev/dri for Moonlight and GStreamer
-dtoverlay=rpivid-v4l2        # HEVC (H.265) hardware decoder -> /dev/video19
+# kernel brings up onboard Bluetooth (hciuart.service disabled)
+dtparam=krnbt=on
+# full KMS display driver: /dev/dri for Moonlight and GStreamer
+dtoverlay=vc4-kms-v3d
+# HEVC (H.265) hardware decoder -> /dev/video19
+dtoverlay=rpivid-v4l2
 [all]
 
 # Comment out the following line if the edges of the desktop appear outside
