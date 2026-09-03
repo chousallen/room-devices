@@ -18,10 +18,13 @@ PipeWire on the Pi is the single mixer: every source above ends up as a stream o
 **Laptop audio to the speaker.** In GNOME Sound settings pick the output "Room-speaker-Pi"
 (node `pi_speaker`), or route a single app there with `pavucontrol`. A user timer
 (`pi-speaker-watch.timer`, every 20 s) creates the device whenever the Pi is reachable, so it
-also comes back after the Pi reboots. Target delay is 80 ms (the laptop is on Wi-Fi); to try
-a lower value edit `LAT` in `~/.local/bin/pi-speaker-watch`, unload the current tunnel
-(`pactl unload-module $(pactl list modules short | grep tunnel-sink | cut -f1)`) and wait 20 s.
-Go back one step if you hear dropouts.
+also comes back after the Pi reboots. The delay target is 400 ms: measured over two-minute
+runs, 80 ms and 200 ms gave audible gaps (tunnel underflows), 300 ms still two, 400 ms none.
+The Pi only gets about 3/8 of that value as real buffer. To experiment edit `LAT` in
+`~/.local/bin/pi-speaker-watch`, unload the current tunnel
+(`pactl unload-module $(pactl list modules short | grep tunnel-sink | cut -f1)`) and wait 20 s;
+count gaps with `journalctl --user -u pipewire-pulse -o cat | grep -c underflow` on the laptop.
+For lip-synced laptop video use Moonlight, which carries its own audio.
 
 **Laptop screen on the monitor.** From the laptop run `pi-screen start` (mirror this laptop on
 the room monitor), `pi-screen stop` (back to the Moonlight menu) or `pi-screen restart`. Moonlight's menu runs

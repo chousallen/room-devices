@@ -22,10 +22,18 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `laptop/pi-speaker-watch` (systemd user timer, every 20 s) via
   `pactl load-module module-tunnel-sink ... latency_msec=80`. pipewire-pulse splits module
   arguments on whitespace regardless of quoting, so `sink_properties=device.description=` cannot
-  contain spaces (hence "Room-speaker-Pi"). The module's
+  contain spaces (hence "Room-speaker-Pi"). `latency_msec=N` gives the Pi a tlength of only
+  ~0.375·N (80 -> 30 ms, 200 -> 75 ms, 400 -> 150 ms; module halves it, the 0.3.48 server trims
+  more). Below ~150 ms real buffer the laptop logs `mod.pulse-tunnel: underflow` every 2–50 s
+  = audible gaps, with 0 % loss / 3 ms RTT on the LAN. 400 ms is the first clean value. Count
+  gaps on the laptop with `journalctl --user -u pipewire-pulse -o cat | grep -c underflow`; the
+  Pi-side mixer xruns are the ERR column of `pw-top` (cumulative since node start). The module's
   "failed to connect: Bad state" was the Pi-side `node.disabled` routing bug, not network.
 
 ## Bluetooth
+- Phone→Pi (A2DP source, SBC) gaps only at distance/in a pocket while the Pi mixer shows zero
+  xruns: radio link margin (onboard antenna shared with Wi-Fi, wlan0 stays connected by user
+  choice). Fixes are physical: keep the phone near, or a USB Bluetooth dongle. Not a buffer issue.
 - `hciuart`/`hciattach` fails ("Initialization timed out") on this board even with the
   `Requires=dev-serial1.device` fix. The device tree has a `bluetooth` node under the PL011
   UART; `dtparam=krnbt=on` makes the kernel (`hci_uart`+`btbcm`) bring up `hci0` instead.
