@@ -3,7 +3,10 @@
 # XDG_RUNTIME_DIR is required or Moonlight has no audio (moonlight-qt issue #804).
 [Unit]
 Description=Moonlight: stream the laptop desktop to the monitor
-After=user@1000.service systemd-user-sessions.service
+# Conflicts= alone gives no ordering: the stream and the menu stop ran in parallel and the stream
+# opened /dev/dri while the menu still held DRM master (errno 13 everywhere, no picture). After= on
+# the conflicting units makes systemd finish stopping them before this unit starts.
+After=user@1000.service systemd-user-sessions.service moonlight.service pi-player.service
 Wants=user@1000.service
 Conflicts=getty@tty8.service pi-player.service moonlight.service
 
@@ -26,7 +29,11 @@ Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=QT_QPA_PLATFORM=eglfs
 Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1
-Environment=SDL_AUDIODRIVER=pulseaudio
+# Video only: Moonlight decodes the stream audio into SDL's dummy backend, so it never reaches the mixer.
+# Sunshine's audio path stuttered on the Pi (audio packet queue overflow every few minutes under
+# the decode CPU load) and doubled the RTP path; laptop sound goes over "Room speaker (Pi)" instead.
+# --audio-on-host keeps Sunshine from switching the laptop's default output to sink-sunshine-stereo.
+Environment=SDL_AUDIODRIVER=dummy
 ExecStart=/usr/bin/moonlight-qt stream 192.168.0.193 Desktop --resolution 1920x1080 --fps 30 --bitrate 35000 --vsync --no-frame-pacing --audio-on-host
 # when the stream ends (or is stopped), bring the Moonlight menu back
 ExecStopPost=+/bin/systemctl --no-block start moonlight.service

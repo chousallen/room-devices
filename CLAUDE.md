@@ -89,6 +89,19 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - Only one process can own the display (DRM master): `pi-player.service` and `moonlight.service`
   carry `Conflicts=`; the player's `ExecStopPost=+systemctl start moonlight` needs the `+`
   (root) prefix or it fails with "Interactive authentication required".
+- **`Conflicts=` gives no ordering.** A unit that conflicts with the menu must also list it in
+  `After=` (`moonlight-stream.service`, `pi-player.service` do), or systemd starts it while the menu
+  is still exiting; Qt opens `/dev/dri/card0` in the first ~100 ms, gets a non-master fd, and DRM
+  master is never handed over. Symptom: unit `active`, `pi-screen status` fine, monitor frozen,
+  `journalctl _COMM=moonlight-qt` loops "Video decode unit queue overflow" / "Waiting for IDR frame"
+  every 0.5 s. `pi-screen restart` hit it every time (ExecStopPost had just relaunched the menu, which
+  ignores SIGTERM for ~6 s while starting). The `drmModeObjectSetProperty(...) failed: 13` lines are
+  *not* the tell: they also appear in every working run (connector properties this kernel rejects).
+- The DrmRenderer test decode for `h264_v4l2m2m` sometimes fails with "Resource temporarily
+  unavailable" and Moonlight falls back to `SdlRenderer` (opengles2 copy path, main thread ~50-90 %
+  CPU) for that whole session. Before 2026-09-07 this hit ~1 in 7 sessions; on 2026-09-07 all 4 runs
+  fell back (cause not found; the picture works, only CPU is higher). Unrelated to the race above.
+  Check with `journalctl _PID=$(systemctl show -p MainPID --value moonlight-stream) -o cat | grep Chose`.
 - Moonlight logs go to the journal by process (`journalctl _COMM=moonlight-qt`), not the unit.
 - Moonlight's performance overlay (Ctrl+Alt+Shift+S) does **not** work with the DRM renderer on
   the Pi (known upstream limitation); keyboard input itself is forwarded fine.
