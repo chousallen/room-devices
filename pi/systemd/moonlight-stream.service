@@ -34,7 +34,9 @@ Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 # the decode CPU load) and doubled the RTP path; laptop sound goes over "Room speaker (Pi)" instead.
 # --audio-on-host keeps Sunshine from switching the laptop's default output to sink-sunshine-stereo.
 Environment=SDL_AUDIODRIVER=dummy
-ExecStart=/usr/bin/moonlight-qt stream 192.168.0.193 Desktop --resolution 1920x1080 --fps 30 --bitrate 35000 --vsync --no-frame-pacing --audio-on-host
+# local build (build/patches/0003): log received/decoded/rendered/dropped frame counts every 5 s
+Environment=MOONLIGHT_STATS_INTERVAL=5
+ExecStart=/usr/local/bin/moonlight-qt stream 192.168.0.193 Desktop --resolution 1920x1080 --fps 60 --bitrate 50000 --vsync --frame-pacing --audio-on-host
 # when the stream ends (or is stopped), bring the Moonlight menu back
 ExecStopPost=+/bin/systemctl --no-block start moonlight.service
 Restart=no

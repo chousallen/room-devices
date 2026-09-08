@@ -1,0 +1,18 @@
+<!doctype html>
+<title>Latency clock</title>
+<style>
+html,body{margin:0;background:#000;color:#fff;font-family:monospace;height:100%;overflow:hidden}
+#ms{font-size:22vw;line-height:1;text-align:center;margin-top:8vh;font-weight:bold}
+#frame{font-size:8vw;text-align:center;color:#0f0}
+#bar{position:absolute;bottom:6vh;left:0;width:4vw;height:14vh;background:#fff}
+#hint{position:absolute;top:1vh;left:1vw;font-size:2vw;color:#888}
+</style>
+<div id="hint">ms since page load / green: frame number / white block: 1 step per frame. F11 for full screen.</div>
+<div id="ms">0</div>
+<div id="frame">0</div>
+<div id="bar"></div>
+<script>
+const t0=performance.now();let n=0;const ms=document.getElementById('ms'),fr=document.getElementById('frame'),bar=document.getElementById('bar');
+function tick(){n++;ms.textContent=Math.round(performance.now()-t0).toString().padStart(6,'0');fr.textContent=n;bar.style.left=((n%24)*4)+'vw';requestAnimationFrame(tick);}
+requestAnimationFrame(tick);
+</script>

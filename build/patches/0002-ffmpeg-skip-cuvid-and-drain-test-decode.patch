@@ -1,0 +1,82 @@
+diff --git a/app/streaming/video/ffmpeg.cpp b/app/streaming/video/ffmpeg.cpp
+index 6e1f806..ca17831 100644
+--- a/app/streaming/video/ffmpeg.cpp
++++ b/app/streaming/video/ffmpeg.cpp
+@@ -599,7 +599,40 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
+             }
+         }
+ 
+-        if (err < 0) {
++        if (err == AVERROR(EAGAIN)) {
++            // Stateful V4L2 M2M decoders (Raspberry Pi bcm2835-codec via h264_v4l2m2m on
++            // FFmpeg 4.4) sometimes hold the first picture until they see end-of-stream,
++            // so the retries above intermittently end in EAGAIN and Moonlight falls back
++            // to the copying SdlRenderer for the whole session. Drain the decoder to get
++            // the buffered picture out, then reset it so the real stream starts clean.
++            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                        "Test decode produced no output yet; draining decoder");
++            err = avcodec_send_packet(m_VideoDecoderCtx, nullptr);
++            if (err >= 0) {
++                for (int drainTries = 0; drainTries < 10; drainTries++) {
++                    err = avcodec_receive_frame(m_VideoDecoderCtx, frame);
++                    if (err != AVERROR(EAGAIN)) {
++                        break;
++                    }
++                    SDL_Delay(50);
++                }
++            }
++            avcodec_flush_buffers(m_VideoDecoderCtx);
++        }
++
++        if (err < 0 && strstr(decoder->name, "_v4l2m2m") != nullptr &&
++                (err == AVERROR(EAGAIN) || err == AVERROR_EOF)) {
++            // FFmpeg 4.4's V4L2 M2M wrapper on the Pi never emits a picture for the tiny test
++            // stream (it lacks the source-change handling newer FFmpeg has), even after a drain.
++            // The same decoder decodes the real stream fine, so accept it untested rather than
++            // dropping to the copying SdlRenderer for the whole session.
++            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
++                        "Test decode gave no picture from %s; accepting it untested",
++                        decoder->name);
++            av_frame_free(&frame);
++            frame = nullptr;
++        }
++        else if (err < 0) {
+             char errorstring[512];
+             av_strerror(err, errorstring, sizeof(errorstring));
+             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+@@ -609,14 +642,16 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
+         }
+ 
+         // Allow the renderer to do any validation it wants on this frame
+-        if (!m_FrontendRenderer->testRenderFrame(frame)) {
++        if (frame != nullptr && !m_FrontendRenderer->testRenderFrame(frame)) {
+             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
+                         "Test decode failed (testRenderFrame)");
+             av_frame_free(&frame);
+             return false;
+         }
+ 
+-        av_frame_free(&frame);
++        if (frame != nullptr) {
++            av_frame_free(&frame);
++        }
+     }
+     else {
+         if ((params->videoFormat & VIDEO_FORMAT_MASK_H264) &&
+@@ -1264,6 +1299,16 @@ int FFmpegVideoDecoder::getAVCodecCapabilities(const AVCodec *codec)
+ 
+ bool FFmpegVideoDecoder::isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params)
+ {
++    // Ubuntu 22.04's libavcodec 4.4 segfaults inside avcodec_open2() for the *_cuvid decoders when
++    // libnvcuvid.so.1 cannot be loaded (no Nvidia GPU). Those decoders can never work here, so never
++    // try them. Upstream's bundled FFmpeg is built without cuvid and never hits this.
++    {
++        size_t len = strlen(decoder->name);
++        if (len > 6 && strcmp(decoder->name + len - 6, "_cuvid") == 0) {
++            return false;
++        }
++    }
++
+     SDL_assert(params->videoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265 | VIDEO_FORMAT_MASK_AV1));
+ 
+ #if defined(HAVE_MMAL) && !defined(ALLOW_EGL_WITH_MMAL)
