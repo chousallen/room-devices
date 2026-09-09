@@ -81,6 +81,16 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `Requires=dev-serial1.device` fix. The device tree has a `bluetooth` node under the PL011
   UART; `dtparam=krnbt=on` makes the kernel (`hci_uart`+`btbcm`) bring up `hci0` instead.
   `hciuart.service` is disabled.
+- **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is
+  *active*** (`scripts/monitors/bluez.lua`: monitor created only on `logind get-state == "active"`; with
+  `Linger=yes` and no SSH login the state is "lingering"; the Moonlight tty8 session counts as "online", not
+  active). Symptom: the phone connects/plays only while someone is SSHed in; `bluetoothd` logs
+  `Endpoint registered/unregistered` at exactly the `systemd-logind` New/Removed session times, and
+  `bluetoothctl show` loses the "Audio Sink" UUID. Fix: `pi/config/wireplumber/bluetooth.lua.d/52-headless-no-logind.lua`
+  redefines `bluez_monitor.enable()` without `load_optional_module("logind")`. Check it is in effect:
+  `grep -c logind /proc/$(systemctl --user show -p MainPID --value wireplumber)/maps` prints 0.
+- `systemctl --user restart wireplumber` kills the RTP receiver stream in `rtp-speaker.service`
+  ("stream error: no node available", the module is gone); restart `rtp-speaker` afterwards.
 
 ## Display
 - `/boot/firmware/config.txt` needs `dtoverlay=vc4-kms-v3d` (in a `[pi4]` block); without it
