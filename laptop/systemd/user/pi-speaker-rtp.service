@@ -1,0 +1,15 @@
+# User unit (~/.config/systemd/user/): RTP sender for the laptop's audio -> Pi room speaker.
+# Not enabled at login: pi-speaker-watch (10 s timer) starts it while the Pi is reachable on the
+# home Wi-Fi, stops it otherwise, and restarts it when its UDP socket is bound to a stale address
+# (module-rtp-sink binds+connects once at load and never re-binds).
+[Unit]
+Description=Laptop audio over RTP -> Pi room speaker (PipeWire rtp-sink)
+After=pipewire.service wireplumber.service
+Requires=pipewire.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/pipewire -c pi-speaker-rtp.conf
+Restart=on-failure
+RestartSec=3

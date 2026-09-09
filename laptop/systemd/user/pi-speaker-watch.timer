@@ -1,0 +1,10 @@
+[Unit]
+Description=Check every 10 s whether the Pi room speaker should be an output device
+
+[Timer]
+OnBootSec=15
+OnUnitActiveSec=10
+AccuracySec=2
+
+[Install]
+WantedBy=timers.target

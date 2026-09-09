@@ -12,12 +12,27 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   Rollback: `build/out/pre-ppa/packages.txt` + `ppa-purge`. Realtime still comes via RTKit
   (thread `pw-data-loop` at RR 20); `ps -eLo cls,rtprio,comm` shows the main thread as TS.
 - Laptop -> Pi audio is **PipeWire RTP**, not the pulse tunnel: laptop `module-rtp-sink`
-  (`laptop/60-pi-speaker-rtp.conf`, unicast S16BE to UDP 46000) -> Pi `module-rtp-source` in
+  (`laptop/pi-speaker-rtp.conf` in its own process `pi-speaker-rtp.service`, unicast S16BE to UDP 46000) -> Pi `module-rtp-source` in
   its own process, user unit `rtp-speaker.service` running `pipewire -c rtp-speaker.conf`.
   It must start *after* WirePlumber has the ALSA sink: loading rtp-source from the main
   daemon's `pipewire.conf.d` fails at boot with "stream error: no node available" and the
   module is gone (UDP port never opens). `sess.latency.msec = 200` (100 dipped 3x/2 min on
   Wi-Fi; 200 zero). `sess.ignore-ssrc = true` so laptop restarts keep working.
+- **The laptop sender lives in its own process and exists only while the Pi is reachable.**
+  `module-rtp-sink` creates and `connect()`s its UDP socket once at module load; after the laptop
+  changes network (eduroam -> home) the socket keeps the old source address, every `sendmsg()` fails
+  at *debug* log level only, the node stays "running", the sink stays IDLE, and the Pi gets zero
+  packets. Nothing in the journal. So the sender is user unit `pi-speaker-rtp.service`
+  (`pipewire -c pi-speaker-rtp.conf`, `laptop/`), not enabled at login; the 10 s user timer
+  `pi-speaker-watch` starts it only while NetworkManager connection `sallen-router` is active *and*
+  `ping 192.168.0.101` answers, stops it otherwise, and restarts it when the socket's local address
+  (`ss -uanpH | grep :46000`) differs from `ip route get 192.168.0.101` src. While the sink is gone the
+  *configured* default output is rewritten to another sink (seen: `sink-sunshine-stereo`) and is not
+  restored by itself; the watch script restores `pi_speaker` as default only if it was the default
+  when it stopped the sender. History: `journalctl --user -t pi-speaker-watch`.
+  `audio.position = [ FL FR ]` is required in the rtp-sink args: without it the sink's channel map is
+  `aux0,aux1` and GNOME Settings' speaker test shows no channel buttons. Pi-side check:
+  `sudo tcpdump -ni eth0 udp port 46000` shows ~100 pkt/s (1932 B) while audio plays.
 - The pulse tunnel (laptop 1.0.5 `module-pulse-tunnel`/`module-tunnel-sink`) was abandoned:
   once its buffer drifted it underflowed **every 2 s** (`mod.pulse-tunnel: underflow`), against
   both the 0.3.48 and the 1.0.7 server, with 0 % loss / 3 ms RTT. Only latency_msec=400

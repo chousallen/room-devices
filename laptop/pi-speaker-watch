@@ -1,0 +1,56 @@
+#!/bin/sh
+# Keep the Pi room speaker output (sink "pi_speaker", unit pi-speaker-rtp.service) present ONLY while
+# the laptop is on the home Wi-Fi and the Pi answers ping. Run every 10 s by pi-speaker-watch.timer.
+#  - not on $HOME_CON, or Pi not pinging  -> stop the sender (sink disappears; no ping traffic elsewhere)
+#  - reachable and sender not running     -> start it; restore it as default output only if it was
+#                                            the default when we stopped it
+#  - reachable and running, but its UDP socket is bound to an address that is no longer the route
+#    source to the Pi (module-rtp-sink binds once at load; stale after a network change) -> restart
+PI=${PI_HOST_IP:-192.168.0.101}
+HOME_CON=${HOME_CON:-sallen-router}      # NetworkManager connection name (Wi-Fi SSID)
+UNIT=pi-speaker-rtp.service
+STATE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/pi-speaker-watch.was-default"
+log() { logger -t pi-speaker-watch "$*"; }
+
+sink_present() { pactl list sinks short 2>/dev/null | grep -q '[[:space:]]pi_speaker[[:space:]]'; }
+wait_sink() { i=0; while [ $i -lt 10 ]; do sink_present && return 0; sleep 0.5; i=$((i+1)); done; return 1; }
+on_home_wifi() { nmcli -t -f NAME,TYPE,DEVICE con show --active 2>/dev/null | grep -q "^$HOME_CON:"; }
+
+reachable=0
+if on_home_wifi; then
+    ping -c1 -W1 -q "$PI" >/dev/null 2>&1 && reachable=1
+    reason="pi not answering ping"
+else
+    reason="not on home wifi $HOME_CON"
+fi
+
+if systemctl --user -q is-active "$UNIT"; then active=1; else active=0; fi
+
+if [ $reachable = 1 ]; then
+    if [ $active = 0 ]; then
+        systemctl --user start "$UNIT"
+        wait_sink || log "started $UNIT but pi_speaker did not appear"
+        if [ -e "$STATE" ]; then
+            pactl set-default-sink pi_speaker && log "started $UNIT, restored pi_speaker as default"
+            rm -f "$STATE"
+        else
+            log "started $UNIT"
+        fi
+    else
+        local=$(ss -uanpH 2>/dev/null | awk '$5 ~ /:46000$/ { sub(/:[0-9]+$/, "", $4); print $4; exit }')
+        want=$(ip -4 route get "$PI" 2>/dev/null | awk '{ for (i=1;i<NF;i++) if ($i=="src") { print $(i+1); exit } }')
+        if [ -n "$local" ] && [ -n "$want" ] && [ "$local" != "$want" ]; then
+            was=$(pactl get-default-sink 2>/dev/null)
+            systemctl --user restart "$UNIT"
+            wait_sink || log "restarted $UNIT but pi_speaker did not appear"
+            [ "$was" = pi_speaker ] && pactl set-default-sink pi_speaker
+            log "restarted $UNIT: socket was bound to $local, route source is now $want"
+        fi
+    fi
+else
+    if [ $active = 1 ]; then
+        if [ "$(pactl get-default-sink 2>/dev/null)" = pi_speaker ]; then touch "$STATE"; else rm -f "$STATE"; fi
+        systemctl --user stop "$UNIT"
+        log "stopped $UNIT: $reason"
+    fi
+fi
