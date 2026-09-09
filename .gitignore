@@ -1,2 +1,6 @@
 build/out/
 .claude/
+
+# large test recordings / photos from Moonlight tuning
+record*.mp4
+/latency/

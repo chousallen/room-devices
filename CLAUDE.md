@@ -12,12 +12,27 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   Rollback: `build/out/pre-ppa/packages.txt` + `ppa-purge`. Realtime still comes via RTKit
   (thread `pw-data-loop` at RR 20); `ps -eLo cls,rtprio,comm` shows the main thread as TS.
 - Laptop -> Pi audio is **PipeWire RTP**, not the pulse tunnel: laptop `module-rtp-sink`
-  (`laptop/60-pi-speaker-rtp.conf`, unicast S16BE to UDP 46000) -> Pi `module-rtp-source` in
+  (`laptop/pi-speaker-rtp.conf` in its own process `pi-speaker-rtp.service`, unicast S16BE to UDP 46000) -> Pi `module-rtp-source` in
   its own process, user unit `rtp-speaker.service` running `pipewire -c rtp-speaker.conf`.
   It must start *after* WirePlumber has the ALSA sink: loading rtp-source from the main
   daemon's `pipewire.conf.d` fails at boot with "stream error: no node available" and the
   module is gone (UDP port never opens). `sess.latency.msec = 200` (100 dipped 3x/2 min on
   Wi-Fi; 200 zero). `sess.ignore-ssrc = true` so laptop restarts keep working.
+- **The laptop sender lives in its own process and exists only while the Pi is reachable.**
+  `module-rtp-sink` creates and `connect()`s its UDP socket once at module load; after the laptop
+  changes network (eduroam -> home) the socket keeps the old source address, every `sendmsg()` fails
+  at *debug* log level only, the node stays "running", the sink stays IDLE, and the Pi gets zero
+  packets. Nothing in the journal. So the sender is user unit `pi-speaker-rtp.service`
+  (`pipewire -c pi-speaker-rtp.conf`, `laptop/`), not enabled at login; the 10 s user timer
+  `pi-speaker-watch` starts it only while NetworkManager connection `sallen-router` is active *and*
+  `ping 192.168.0.101` answers, stops it otherwise, and restarts it when the socket's local address
+  (`ss -uanpH | grep :46000`) differs from `ip route get 192.168.0.101` src. While the sink is gone the
+  *configured* default output is rewritten to another sink (seen: `sink-sunshine-stereo`) and is not
+  restored by itself; the watch script restores `pi_speaker` as default only if it was the default
+  when it stopped the sender. History: `journalctl --user -t pi-speaker-watch`.
+  `audio.position = [ FL FR ]` is required in the rtp-sink args: without it the sink's channel map is
+  `aux0,aux1` and GNOME Settings' speaker test shows no channel buttons. Pi-side check:
+  `sudo tcpdump -ni eth0 udp port 46000` shows ~100 pkt/s (1932 B) while audio plays.
 - The pulse tunnel (laptop 1.0.5 `module-pulse-tunnel`/`module-tunnel-sink`) was abandoned:
   once its buffer drifted it underflowed **every 2 s** (`mod.pulse-tunnel: underflow`), against
   both the 0.3.48 and the 1.0.7 server, with 0 % loss / 3 ms RTT. Only latency_msec=400
@@ -66,6 +81,16 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `Requires=dev-serial1.device` fix. The device tree has a `bluetooth` node under the PL011
   UART; `dtparam=krnbt=on` makes the kernel (`hci_uart`+`btbcm`) bring up `hci0` instead.
   `hciuart.service` is disabled.
+- **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is
+  *active*** (`scripts/monitors/bluez.lua`: monitor created only on `logind get-state == "active"`; with
+  `Linger=yes` and no SSH login the state is "lingering"; the Moonlight tty8 session counts as "online", not
+  active). Symptom: the phone connects/plays only while someone is SSHed in; `bluetoothd` logs
+  `Endpoint registered/unregistered` at exactly the `systemd-logind` New/Removed session times, and
+  `bluetoothctl show` loses the "Audio Sink" UUID. Fix: `pi/config/wireplumber/bluetooth.lua.d/52-headless-no-logind.lua`
+  redefines `bluez_monitor.enable()` without `load_optional_module("logind")`. Check it is in effect:
+  `grep -c logind /proc/$(systemctl --user show -p MainPID --value wireplumber)/maps` prints 0.
+- `systemctl --user restart wireplumber` kills the RTP receiver stream in `rtp-speaker.service`
+  ("stream error: no node available", the module is gone); restart `rtp-speaker` afterwards.
 
 ## Display
 - `/boot/firmware/config.txt` needs `dtoverlay=vc4-kms-v3d` (in a `[pi4]` block); without it
@@ -84,7 +109,7 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   "DrmRenderer", NV12 drm_prime zero-copy. Its bundled FFmpeg probes `hevc_v4l2request` and falls
   back to H.264. Stream settings live in `~/.config/Moonlight Game Streaming Project/Moonlight.conf`
   `[streaming]`; the `stream` CLI ignores them and defaults to 720p, so `moonlight-stream.service`
-  passes flags: 1920x1080, **30 fps, 35000 kbps** (Sunshine keeps ~27 Mbps for video). Sharpness
+  passes flags: 1920x1080, **60 fps, 50000 kbps**. Smooth 60 fps needs the local build's Pi FFmpeg fork (zero-copy, below); with it the Pi renders 60/60 frames, 0 drops, render thread ~2% CPU. History: 30 fps/35000 until 2026-09-08; 60 fps/50000 on stock FFmpeg jittered (rendered only ~30/60) until the fork build 2026-09-09. At 60 fps with the DrmRenderer Moonlight uses ~1 core total (PacerRender thread ~50 %), CPU pressure `some` avg60 ~11-14 %, zero decode queue overflows after the first 15 s; laptop encodes with `h264_vaapi` (Intel VCS ~15 %, sunshine ~25 % CPU). Measured glass-to-glass delay at 1080p60/50000 (phone photos of laptop + monitor showing `laptop/latency-clock.html`, 10 shots, 2026-09-09): typically 83 ms (5 frames), range 67-101 ms. Sharpness
   needs the laptop panel set to 1920x1080 too, or Sunshine downscales 1200→1080 and blurs text.
 - Only one process can own the display (DRM master): `pi-player.service` and `moonlight.service`
   carry `Conflicts=`; the player's `ExecStopPost=+systemctl start moonlight` needs the `+`
@@ -102,9 +127,73 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   CPU) for that whole session. Before 2026-09-07 this hit ~1 in 7 sessions; on 2026-09-07 all 4 runs
   fell back (cause not found; the picture works, only CPU is higher). Unrelated to the race above.
   Check with `journalctl _PID=$(systemctl show -p MainPID --value moonlight-stream) -o cat | grep Chose`.
+- Refresh rates: Pi HDMI mode is exactly 60.000 Hz (148.5 MHz / 2200x1125; the monitor EDID's only
+  1080p detailed timing). Laptop panel modes: 1920x1200@60.002 (preferred), 1920x1200@59.950,
+  1920x1080@59.934 (no 1080p@60.000). At 1080p the two clocks slip one frame every ~15 s.
+- Sunshine video RTP (src port 47998 -> random Pi port): 12 B RTP header + 4 reserved B, then
+  NV_VIDEO_PACKET; `frameIndex` is at UDP-payload offset 20 (Ethernet frame offset 62). Grouping a
+  tcpdump by it gives frames/s, per-frame size and arrival jitter (measured: 60.1 fps, stdev 1.35 ms).
+  A period-5 pattern in frame sizes = 24 fps video content (2-3-2-3 cadence on a 60 Hz desktop).
+  Moonlight prints no per-session frame stats to the journal (the unit kills it, so the destructor's
+  "Global video stats" line never appears); the overlay does not work on DRM either.
 - Moonlight logs go to the journal by process (`journalctl _COMM=moonlight-qt`), not the unit.
 - Moonlight's performance overlay (Ctrl+Alt+Shift+S) does **not** work with the DRM renderer on
   the Pi (known upstream limitation); keyboard input itself is forwarded fine.
+- **`--frame-pacing` is a no-op with the DRM renderer.** moonlight-qt only has a vsync source on Windows
+  and Wayland (pacer.cpp: "Platforms without a VsyncSource will just render frames immediately");
+  on bare KMS each frame is shown at the first vblank after decode because `drmModeSetPlane()` blocks
+  (maintainer, issue #1514). So display timing = arrival + decode time quantised to 60 Hz; when that
+  phase drifts near a vblank boundary, frames alternate slots (repeat + skip) = visible jitter on
+  60 fps motion (testufo.com), while the same monitor fed directly from the laptop is smooth.
+  Measured 2026-09-09: Sunshine stamps frames at a free-running 60.000 Hz (RTP ts, 90 kHz, +-0.3 ms);
+  network jitter to the Pi stdev 1.7 ms, p99 +-4 ms, max 7 ms; Wi-Fi ping max 28 ms/600.
+  **Fixed 2026-09-09 with a local build** (`moonlight-qt-pi` 6.1.0-ubuntu2204pi6, `/usr/local/bin/moonlight-qt`;
+  both units point there; the Cloudsmith `moonlight-qt` is removed by `Conflicts:`). Patches in `build/patches/`:
+  0001 `DrmVsyncSource` (IVsyncSource that blocks in `drmWaitVBlank()` on the CRTC of the connected connector,
+  selected for `SDL_SYSWM_KMSDRM`; log line "DrmVsyncSource: pacing to vblank of CRTC 94 (pipe 3)"; thread
+  `PacerVsync`); 0002 skips `*_cuvid` decoders (jammy libavcodec 4.4 segfaults in `avcodec_open2()` when
+  libnvcuvid is missing, seen with gdb) and accepts `*_v4l2m2m` when the one-frame test decode yields
+  EAGAIN/EOF (FFmpeg 4.4's wrapper never outputs the tiny test frame, even after draining; this was the
+  old "Test decode failed: Resource temporarily unavailable" -> SdlRenderer fallback, now gone).
+  Build facts: jammy's SDL 2.0.20 KMSDRM cannot start ("Failed loading udev_device_get_action ...
+  undefined symbol: _udev_device_get_action", libsdl-org/SDL#4879) so the Dockerfile builds SDL 2.32.10 +
+  SDL_ttf 2.24.0 statically (`Libs.private` folded into the .pc files because qmake calls pkg-config
+  without `--static`); `CONFIG+=disable-libvdpau disable-x11 disable-wayland` (vdpau.cpp uses SDL x11
+  fields unguarded). Package deps needed `libva-wayland2`, `libfreetype6`, `libudev1`. Rollback:
+  `sudo apt-get install ./<cloudsmith moonlight-qt_6.1.0-4_arm64.deb>` (apt-get download moonlight-qt)
+  and ExecStart back to `/usr/bin/moonlight-qt` in both units. Run a candidate binary under gdb with the
+  units stopped before installing: `pi-screen stop; sudo systemctl stop moonlight; QT_QPA_PLATFORM=eglfs
+  ... gdb -batch -ex run -ex bt --args <bin> stream ...` (crashes here cost the screen otherwise).
+  Vendor-build comparison, main thread CPU: SdlRenderer fallback ~63 %, DrmRenderer ~15-18 %.
+  Objective smoothness check: phone-record testufo.com on the monitor at 60 fps, then
+  `tools/ufo-step-analysis.py record.mp4` (per-frame UFO step: repeats/doubles; a 59 fps phone adds ~1
+  double/s). Before the fix (pacer on but SdlRenderer fallback, 2026-09-09 03:09): 20.7 % repeated frames,
+  9.7 % double steps.
+  **Remaining bottleneck (measured 2026-09-09 with the 0003 stats log, MOONLIGHT_STATS_INTERVAL=5):**
+  the pacer works but the Pi renders only ~30 of 60 fps (stats: received/decoded 302/5s = 60, rendered
+  133-181, pacerDropped 120-170, netDropped 0). Render-thread gdb stacks are in `DrmRenderer::mapSoftwareFrame`
+  -> `memcpy` (a 1080p NV12 CPU copy per frame) + blocking `drmModeSetPlane`, > 16.7 ms/frame, so half the
+  frames are dropped = the residual jitter. Cause: the h264_v4l2m2m *drm_prime* (zero-copy) hwaccel path
+  fails its 1-frame test decode (EAGAIN "Resource temporarily unavailable" on jammy FFmpeg 4.4), so Moonlight
+  uses the non-hwaccel v4l2m2m decoder that outputs software NV12. DrmRenderer *does* have a zero-copy import
+  (drm.cpp:1126, `drmPrimeFDToHandle` when frame->format==DRM_PRIME) - it's just not being fed drm_prime frames.
+  **Solved 2026-09-09 (pi8 build) by replacing the FFmpeg.** Root cause: jammy's stock FFmpeg 4.4 h264_v4l2m2m
+  advertises no hwaccel and only outputs software NV12 (`ffmpeg -h decoder=h264_v4l2m2m` shows no hw config;
+  a CLI decode picks `capture=YU12`), so DrmRenderer always took the copy path. The `build/Dockerfile` now
+  builds the **jc-kynesim/rpi-ffmpeg fork** (branch `dev/6.1.1/rpi_import_1`) which adds an AV_PIX_FMT_DRM_PRIME
+  (dma-buf) output for v4l2m2m - the same FFmpeg Raspberry Pi OS ships. Configure:
+  `--enable-shared --enable-gpl --enable-v4l2-request --enable-libdrm --enable-libudev --enable-sand
+  --disable-mmal --disable-vaapi --disable-vdpau --disable-programs --disable-doc --disable-encoders
+  --disable-muxers` (v4l2-request REQUIRES libudev-dev, or configure errors). It installs to /usr/local
+  (soname libavcodec.so.60, distinct from jammy's .so.58 - they coexist); Moonlight links it via pkg-config
+  after purging jammy's libav*-dev, and carries `-rpath /usr/local/lib`. package.sh ships the fork's
+  libav*/libsw* .so into the deb's /usr/local/lib with a postinst `ldconfig`; deb is ~16 MB (vs ~9). With the
+  fork the render thread hands drm_prime frames straight to drmModeSetPlane (no mapSoftwareFrame/memcpy),
+  render-thread CPU ~2% (was ~50%), and 1080p60 renders 60/60 with 0 drops. Verify zero-copy: gdb the
+  PacerRender thread - it must NOT be in `DrmRenderer::mapSoftwareFrame`/memcpy.
+    Abandoned alternatives: PR moonlight-qt#1139 "minimum-latency" (timer release, not vblank-locked), a Wayland
+  kiosk compositor (cage) for WaylandVsyncSource.
+- Monitor: ASUS VY229HE (IPS, 75 Hz, HDMI). Direct laptop->monitor mirroring runs at 75 Hz.
 - Mirroring latency was caused by CPU starvation on the Pi, not the network (RTT ~3 ms):
   `/proc/pressure/cpu` some ~50 %, "Audio packet queue overflow" in Moonlight's log. Fixes:
   `Nice=-10` in `moonlight*.service`, laptop Wi-Fi power save off
@@ -130,6 +219,14 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   (video+audio) GStreamer pipeline. Not done.
 - Rebuild Moonlight on the laptop:
   `cd /media/sallen/SSD-Programs/room-devices-build && docker build --platform linux/arm64 -t moonlight-pi-build . && docker run --rm --platform linux/arm64 -v $PWD/out:/out moonlight-pi-build`
+  Copy `build/Dockerfile`, `build/package.sh`, `build/patches/` there first; `-e PKG_REV=ubuntu2204pi2`
+  names the .deb. **arm64 containers fail with `exec /bin/sh: no such file or directory` while Waydroid
+  is running**: its Android init registers binfmt entries `arm64_exe`/`arm64_dyn` (interpreter
+  `/system/bin/houdini64`, exists only inside the Android container) that shadow `qemu-aarch64`
+  (binfmt_misc tries the newest entry first). Fix for the build:
+  `for e in arm64_exe arm64_dyn; do echo 0 | sudo tee /proc/sys/fs/binfmt_misc/$e; done`, re-enable
+  with `echo 1` afterwards (Waydroid needs them for arm apps). Check: `docker run --rm --platform
+  linux/arm64 ubuntu:22.04 uname -m` prints `aarch64`.
 
 ## Sunshine / Moonlight pairing (laptop)
 - `sunshine --creds USER PASS` writes credentials, but the running service must be

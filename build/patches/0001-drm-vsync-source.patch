@@ -1,0 +1,243 @@
+diff --git a/app/app.pro b/app/app.pro
+index 740f010..48a3b90 100644
+--- a/app/app.pro
++++ b/app/app.pro
+@@ -319,8 +319,10 @@ libdrm {
+     message(DRM renderer selected)
+ 
+     DEFINES += HAVE_DRM
+-    SOURCES += streaming/video/ffmpeg-renderers/drm.cpp
+-    HEADERS += streaming/video/ffmpeg-renderers/drm.h
++    SOURCES += streaming/video/ffmpeg-renderers/drm.cpp \
++        streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.cpp
++    HEADERS += streaming/video/ffmpeg-renderers/drm.h \
++        streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.h
+ 
+     linux {
+         message(Master hooks enabled)
+diff --git a/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.cpp b/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.cpp
+new file mode 100644
+index 0000000..9fefe41
+--- /dev/null
++++ b/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.cpp
+@@ -0,0 +1,150 @@
++#include "drmvsyncsource.h"
++
++#include <SDL_syswm.h>
++
++#include <xf86drm.h>
++#include <xf86drmMode.h>
++
++#include <errno.h>
++#include <fcntl.h>
++#include <string.h>
++#include <unistd.h>
++
++DrmVsyncSource::DrmVsyncSource(Pacer* pacer)
++    : m_Pacer(pacer),
++      m_DrmFd(-1),
++      m_OwnsFd(false),
++      m_CrtcPipe(0),
++      m_DisplayFps(60)
++{
++
++}
++
++DrmVsyncSource::~DrmVsyncSource()
++{
++    if (m_OwnsFd && m_DrmFd >= 0) {
++        close(m_DrmFd);
++    }
++}
++
++bool DrmVsyncSource::initialize(SDL_Window* window, int displayFps)
++{
++    m_DisplayFps = displayFps > 0 ? displayFps : 60;
++
++    SDL_SysWMinfo info;
++    SDL_VERSION(&info.version);
++    if (!SDL_GetWindowWMInfo(window, &info)) {
++        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
++                     "SDL_GetWindowWMInfo() failed: %s",
++                     SDL_GetError());
++        return false;
++    }
++
++#if defined(SDL_VIDEO_DRIVER_KMSDRM) && SDL_VERSION_ATLEAST(2, 0, 16)
++    if (info.subsystem == SDL_SYSWM_KMSDRM && info.info.kmsdrm.drm_fd >= 0) {
++        // Same fd the DrmRenderer uses for its commits; ioctls on one fd are
++        // safe to issue from several threads.
++        m_DrmFd = info.info.kmsdrm.drm_fd;
++    }
++#endif
++
++    if (m_DrmFd < 0) {
++        const char* device = SDL_getenv("DRM_DEV");
++        if (device == nullptr) {
++            device = "/dev/dri/card0";
++        }
++        m_DrmFd = open(device, O_RDWR | O_CLOEXEC);
++        if (m_DrmFd < 0) {
++            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
++                        "DrmVsyncSource: open(%s) failed: %s",
++                        device, strerror(errno));
++            return false;
++        }
++        m_OwnsFd = true;
++    }
++
++    // Find the CRTC behind the first connected connector and its index
++    // ("pipe") in the CRTC list, which is what the vblank ioctl wants.
++    drmModeRes* resources = drmModeGetResources(m_DrmFd);
++    if (resources == nullptr) {
++        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
++                    "DrmVsyncSource: drmModeGetResources() failed: %s",
++                    strerror(errno));
++        return false;
++    }
++
++    uint32_t crtcId = 0;
++    for (int i = 0; i < resources->count_connectors && crtcId == 0; i++) {
++        drmModeConnector* connector = drmModeGetConnector(m_DrmFd, resources->connectors[i]);
++        if (connector == nullptr) {
++            continue;
++        }
++        if (connector->connection == DRM_MODE_CONNECTED && connector->encoder_id != 0) {
++            drmModeEncoder* encoder = drmModeGetEncoder(m_DrmFd, connector->encoder_id);
++            if (encoder != nullptr) {
++                crtcId = encoder->crtc_id;
++                drmModeFreeEncoder(encoder);
++            }
++        }
++        drmModeFreeConnector(connector);
++    }
++
++    int pipe = -1;
++    for (int i = 0; i < resources->count_crtcs; i++) {
++        if (resources->crtcs[i] == crtcId) {
++            pipe = i;
++            break;
++        }
++    }
++    drmModeFreeResources(resources);
++
++    if (crtcId == 0 || pipe < 0) {
++        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
++                    "DrmVsyncSource: no active CRTC found");
++        return false;
++    }
++    m_CrtcPipe = (unsigned int)pipe;
++
++    // Probe once so a failure shows up here, not silently in the vsync thread
++    if (!waitOneVblank()) {
++        SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
++                    "DrmVsyncSource: drmWaitVBlank() on CRTC %u (pipe %d) failed: %s",
++                    crtcId, pipe, strerror(errno));
++        return false;
++    }
++
++    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                "DrmVsyncSource: pacing to vblank of CRTC %u (pipe %d) on fd %d, %d Hz",
++                crtcId, pipe, m_DrmFd, m_DisplayFps);
++    return true;
++}
++
++bool DrmVsyncSource::isAsync()
++{
++    // We block in waitForVsync() on the Pacer's vsync thread
++    return false;
++}
++
++bool DrmVsyncSource::waitOneVblank()
++{
++    drmVBlank vbl;
++    memset(&vbl, 0, sizeof(vbl));
++    vbl.request.type = (drmVBlankSeqType)(DRM_VBLANK_RELATIVE |
++                                          ((m_CrtcPipe << _DRM_VBLANK_HIGH_CRTC_SHIFT) & _DRM_VBLANK_HIGH_CRTC_MASK));
++    vbl.request.sequence = 1;
++
++    int err;
++    do {
++        err = drmWaitVBlank(m_DrmFd, &vbl);
++    } while (err != 0 && errno == EINTR);
++
++    return err == 0;
++}
++
++void DrmVsyncSource::waitForVsync()
++{
++    if (!waitOneVblank()) {
++        // Output off or ioctl refused: keep the Pacer ticking on a timer
++        SDL_Delay(1000 / m_DisplayFps);
++    }
++}
+diff --git a/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.h b/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.h
+new file mode 100644
+index 0000000..7b400ea
+--- /dev/null
++++ b/app/streaming/video/ffmpeg-renderers/pacer/drmvsyncsource.h
+@@ -0,0 +1,30 @@
++#pragma once
++
++#include "pacer.h"
++
++// V-sync source for bare KMS/DRM output (SDL KMSDRM backend, no compositor).
++// Blocks in drmWaitVBlank() on the CRTC that drives the connected output, so
++// the Pacer releases exactly one frame per display refresh instead of showing
++// each frame at whatever vblank follows its (jittery) arrival + decode time.
++class DrmVsyncSource : public IVsyncSource
++{
++public:
++    DrmVsyncSource(Pacer* pacer);
++
++    virtual ~DrmVsyncSource();
++
++    virtual bool initialize(SDL_Window* window, int displayFps) override;
++
++    virtual bool isAsync() override;
++
++    virtual void waitForVsync() override;
++
++private:
++    bool waitOneVblank();
++
++    Pacer* m_Pacer;
++    int m_DrmFd;
++    bool m_OwnsFd;
++    unsigned int m_CrtcPipe;
++    int m_DisplayFps;
++};
+diff --git a/app/streaming/video/ffmpeg-renderers/pacer/pacer.cpp b/app/streaming/video/ffmpeg-renderers/pacer/pacer.cpp
+index 2686c54..8446f4e 100644
+--- a/app/streaming/video/ffmpeg-renderers/pacer/pacer.cpp
++++ b/app/streaming/video/ffmpeg-renderers/pacer/pacer.cpp
+@@ -1,4 +1,8 @@
+ #include "pacer.h"
++
++#ifdef HAVE_DRM
++#include "drmvsyncsource.h"
++#endif
+ #include "streaming/streamutils.h"
+ 
+ #ifdef Q_OS_WIN32
+@@ -293,7 +297,20 @@ bool Pacer::initialize(SDL_Window* window, int maxVideoFps, bool enablePacing)
+             break;
+     #endif
+ 
++#if defined(HAVE_DRM) && defined(SDL_VIDEO_DRIVER_KMSDRM) && SDL_VERSION_ATLEAST(2, 0, 16)
++        case SDL_SYSWM_KMSDRM:
++            // Bare KMS output: pace to the CRTC's vblank via drmWaitVBlank()
++            m_VsyncSource = new DrmVsyncSource(this);
++            break;
++#endif
++
+         default:
++#ifdef HAVE_DRM
++            if (qEnvironmentVariableIntValue("DRM_VSYNC_SOURCE") == 1) {
++                m_VsyncSource = new DrmVsyncSource(this);
++                break;
++            }
++#endif
+             // Platforms without a VsyncSource will just render frames
+             // immediately like they used to.
+             break;

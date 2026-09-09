@@ -1,0 +1,9 @@
+# Oneshot run by pi-speaker-watch.timer: keep the Pi speaker output present only while the Pi is
+# reachable on the home Wi-Fi (see laptop/pi-speaker-watch).
+[Unit]
+Description=Pi room speaker output: start/stop the RTP sender by reachability
+After=pipewire.service wireplumber.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/pi-speaker-watch

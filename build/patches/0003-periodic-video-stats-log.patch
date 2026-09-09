@@ -1,0 +1,52 @@
+diff --git a/app/streaming/video/ffmpeg.cpp b/app/streaming/video/ffmpeg.cpp
+index ca17831..8a08c6e 100644
+--- a/app/streaming/video/ffmpeg.cpp
++++ b/app/streaming/video/ffmpeg.cpp
+@@ -229,6 +229,11 @@ FFmpegVideoDecoder::FFmpegVideoDecoder(bool testOnly)
+     SDL_zero(m_ActiveWndVideoStats);
+     SDL_zero(m_LastWndVideoStats);
+     SDL_zero(m_GlobalVideoStats);
++    SDL_zero(m_LogWndVideoStats);
++    // MOONLIGHT_STATS_INTERVAL=<seconds>: periodically log the video stats (received/decoded/
++    // rendered FPS, network and pacer drops, latencies) since the on-screen overlay does not
++    // work with the DRM renderer. 0/unset = off.
++    m_StatsLogIntervalMs = qEnvironmentVariableIntValue("MOONLIGHT_STATS_INTERVAL") * 1000;
+ 
+     SDL_AtomicSet(&m_DecoderThreadShouldQuit, 0);
+ 
+@@ -1813,6 +1818,22 @@ int FFmpegVideoDecoder::submitDecodeUnit(PDECODE_UNIT du)
+         // Accumulate these values into the global stats
+         addVideoStats(m_ActiveWndVideoStats, m_GlobalVideoStats);
+ 
++        // Periodic stats log (see constructor)
++        if (m_StatsLogIntervalMs > 0) {
++            addVideoStats(m_ActiveWndVideoStats, m_LogWndVideoStats);
++            if (SDL_TICKS_PASSED(SDL_GetTicks(), m_LogWndVideoStats.measurementStartTimestamp + m_StatsLogIntervalMs)) {
++                char statsStr[1024];
++                stringifyVideoStats(m_LogWndVideoStats, statsStr, sizeof(statsStr));
++                SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                            "Video stats (%u ms): received %u decoded %u rendered %u netDropped %u pacerDropped %u\n%s",
++                            SDL_GetTicks() - m_LogWndVideoStats.measurementStartTimestamp,
++                            m_LogWndVideoStats.receivedFrames, m_LogWndVideoStats.decodedFrames,
++                            m_LogWndVideoStats.renderedFrames, m_LogWndVideoStats.networkDroppedFrames,
++                            m_LogWndVideoStats.pacerDroppedFrames, statsStr);
++                SDL_zero(m_LogWndVideoStats);
++            }
++        }
++
+         // Move this window into the last window slot and clear it for next window
+         SDL_memcpy(&m_LastWndVideoStats, &m_ActiveWndVideoStats, sizeof(m_ActiveWndVideoStats));
+         SDL_zero(m_ActiveWndVideoStats);
+diff --git a/app/streaming/video/ffmpeg.h b/app/streaming/video/ffmpeg.h
+index 7dbcd50..77eb81a 100644
+--- a/app/streaming/video/ffmpeg.h
++++ b/app/streaming/video/ffmpeg.h
+@@ -99,6 +99,8 @@ private:
+     VIDEO_STATS m_ActiveWndVideoStats;
+     VIDEO_STATS m_LastWndVideoStats;
+     VIDEO_STATS m_GlobalVideoStats;
++    VIDEO_STATS m_LogWndVideoStats;
++    int m_StatsLogIntervalMs;
+ 
+     int m_FramesIn;
+     int m_FramesOut;
