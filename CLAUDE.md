@@ -89,8 +89,14 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `bluetoothctl show` loses the "Audio Sink" UUID. Fix: `pi/config/wireplumber/bluetooth.lua.d/52-headless-no-logind.lua`
   redefines `bluez_monitor.enable()` without `load_optional_module("logind")`. Check it is in effect:
   `grep -c logind /proc/$(systemctl --user show -p MainPID --value wireplumber)/maps` prints 0.
-- `systemctl --user restart wireplumber` kills the RTP receiver stream in `rtp-speaker.service`
-  ("stream error: no node available", the module is gone); restart `rtp-speaker` afterwards.
+- Any WirePlumber restart kills the RTP receiver stream in `rtp-speaker.service` ("stream error: no
+  node available", the module is gone, but the process and the unit stay `active`, UDP 46000 closed).
+  Since 2026-09-10 the unit has `PartOf=wireplumber.service` + a 30 s wait loop for the speaker node
+  in ExecStartPre, so it restarts with WirePlumber (tested: `systemctl --user kill -s KILL wireplumber`
+  -> receiver back with packets in < 10 s). Quick check when the laptop plays and nothing is heard:
+  `ss -uanpH | grep :46000` (must show the pipewire socket) and `journalctl --user -u rtp-speaker`.
+  On 2026-09-10 17:48 WirePlumber died of an external SIGKILL (no OOM, no sudo, nothing in the
+  journal); sender unknown.
 
 ## Display
 - `/boot/firmware/config.txt` needs `dtoverlay=vc4-kms-v3d` (in a `[pi4]` block); without it

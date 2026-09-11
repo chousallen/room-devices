@@ -1,15 +1,19 @@
 # User unit (~/.config/systemd/user/): RTP receiver for the laptop's audio -> room speaker.
 # Waits until WirePlumber has created the speaker sink, otherwise the receiving stream has no
 # target and errors out ("no node available").
+# PartOf=wireplumber.service: any WirePlumber stop/restart (including systemd's automatic restart
+# after a crash or SIGKILL, seen 2026-09-10) destroys the rtp-source module inside this process
+# while the process stays alive and the unit stays "active". Restarting with WirePlumber fixes that.
 [Unit]
 Description=Laptop audio over RTP -> room speaker (PipeWire rtp-source)
 After=pipewire.service wireplumber.service
 Requires=pipewire.service
+PartOf=wireplumber.service
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStartPre=/bin/sh -c 'pw-cli ls Node | grep -q alsa_output.room_speaker'
+ExecStartPre=/bin/sh -c 'for i in $(seq 60); do pw-cli ls Node 2>/dev/null | grep -q alsa_output.room_speaker && exit 0; sleep 0.5; done; echo "speaker sink not found after 30 s" >&2; exit 1'
 ExecStart=/usr/bin/pipewire -c rtp-speaker.conf
 Restart=on-failure
 RestartSec=3
