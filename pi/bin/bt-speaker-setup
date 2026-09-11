@@ -1,10 +1,41 @@
 #!/bin/bash
 # Make the Pi behave like a Bluetooth speaker: powered, always discoverable and pairable.
-# Waits for the adapter (hci0) that the kernel brings up (dtparam=krnbt=on).
+# The speaker adapter is the USB dongle (TP-Link UB500 Plus, Realtek RTL8761BU, USB 2357:0604).
+# The onboard Broadcom radio is removed by dtoverlay=disable-bt; if it is still present (overlay
+# not yet applied) hciN numbering is not stable at boot, so pick the adapter by bus path and
+# power any other adapter off. bluetoothctl one-shot commands act on the first-listed controller,
+# so use the D-Bus object path instead.
 set -euo pipefail
-for i in $(seq 1 60); do [[ -e /sys/class/bluetooth/hci0 ]] && break; sleep 2; done
-[[ -e /sys/class/bluetooth/hci0 ]] || { echo "no hci0 after 120 s" >&2; exit 1; }
-bluetoothctl power on
-bluetoothctl system-alias "sallen-pi speaker"
-bluetoothctl discoverable on
-bluetoothctl pairable on
+ALIAS="sallen-pi speaker"
+
+adapters() {   # hci0 hci1 ... (skips hciN:M, the per-connection entries under the same class dir)
+  local h
+  for h in /sys/class/bluetooth/hci*; do
+    h=$(basename "$h"); [[ -e /sys/class/bluetooth/$h && $h != *:* ]] && echo "$h"
+  done
+}
+pick() {
+  local h
+  for h in $(adapters); do
+    [[ $(readlink -f "/sys/class/bluetooth/$h/device") == */usb* ]] && { echo "$h"; return 0; }
+  done
+  set -- $(adapters)
+  [[ $# -eq 1 ]] && { echo "$1"; return 0; }   # sole adapter of any kind
+  return 1
+}
+
+HCI=
+for i in $(seq 1 60); do HCI=$(pick) && break; sleep 2; done
+[[ -n $HCI ]] || { echo "no USB Bluetooth adapter after 120 s" >&2; exit 1; }
+
+prop() { busctl set-property org.bluez "/org/bluez/$1" org.bluez.Adapter1 "$2" "$3" "$4"; }
+# bluetoothd may register the adapter object a little after its unit is active
+for i in $(seq 1 30); do prop "$HCI" Powered b true 2>/dev/null && break; sleep 1; done
+prop "$HCI" Powered b true
+prop "$HCI" Alias s "$ALIAS"
+prop "$HCI" Discoverable b true
+prop "$HCI" Pairable b true
+for h in $(adapters); do
+  [[ $h == "$HCI" ]] || prop "$h" Powered b false || true
+done
+echo "speaker adapter: $HCI ($(busctl get-property org.bluez "/org/bluez/$HCI" org.bluez.Adapter1 Address | tr -d 's "'))"

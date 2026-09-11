@@ -28,18 +28,16 @@ install -m644 systemd/user/rtp-speaker.service "$H/.config/systemd/user/rtp-spea
 
 echo "== system files"
 sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthority/50-local.d/50-rtkit-sallen.pkla
-sudo install -d /etc/systemd/system/hciuart.service.d
-sudo install -m644 etc/systemd/hciuart.service.d/override.conf /etc/systemd/system/hciuart.service.d/override.conf
 sudo install -m644 etc/bluetooth/main.conf /etc/bluetooth/main.conf
 sudo install -m644 etc/ssh/sshd_config.d/10-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf && sudo sshd -t && sudo systemctl reload ssh
 sudo install -m644 systemd/moonlight.service systemd/pi-player.service systemd/bt-agent.service /etc/systemd/system/
 sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup /usr/local/bin/
 sudo systemctl daemon-reload
-sudo systemctl disable hciuart 2>/dev/null || true      # kernel (krnbt) handles Bluetooth
+sudo systemctl disable hciuart 2>/dev/null || true      # onboard radio is off (dtoverlay=disable-bt); the USB dongle is the speaker adapter
 sudo systemctl enable bluetooth bt-agent
 
 echo "== boot config: check by hand (needs reboot):"
-grep -nE 'vc4-kms-v3d|krnbt|rpivid' /boot/firmware/config.txt || echo "  see etc/config.txt: dtparam=krnbt=on, dtoverlay=vc4-kms-v3d, dtoverlay=rpivid-v4l2 AFTER the dtparam=audio line, no inline comments"
+grep -nE 'vc4-kms-v3d|disable-bt|rpivid' /boot/firmware/config.txt || echo "  see etc/config.txt: dtoverlay=disable-bt, dtoverlay=vc4-kms-v3d, dtoverlay=rpivid-v4l2 AFTER the dtparam=audio line, no inline comments"
 
 echo "== user services"
 sudo loginctl enable-linger "$U"

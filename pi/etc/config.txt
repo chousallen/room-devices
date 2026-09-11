@@ -18,8 +18,9 @@ dtparam=spi=on
 # room-devices: these must come AFTER the dtparam=audio/i2c/spi lines above, or the firmware
 # applies "audio=on" to the overlay instead of the base device tree and the 3.5 mm card vanishes.
 [pi4]
-# kernel brings up onboard Bluetooth (hciuart.service disabled)
-dtparam=krnbt=on
+# onboard Bluetooth off: the TP-Link UB500 Plus USB dongle is the speaker adapter (2026-09-11),
+# so it is always hci0 and the weak onboard radio cannot be picked by mistake. Frees the PL011 UART.
+dtoverlay=disable-bt
 # full KMS display driver: /dev/dri for Moonlight and GStreamer
 dtoverlay=vc4-kms-v3d
 # HEVC (H.265) hardware decoder -> /dev/video19

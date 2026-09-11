@@ -76,11 +76,24 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 ## Bluetooth
 - Phone→Pi (A2DP source, SBC) gaps only at distance/in a pocket while the Pi mixer shows zero
   xruns: radio link margin (onboard antenna shared with Wi-Fi, wlan0 stays connected by user
-  choice). Fixes are physical: keep the phone near, or a USB Bluetooth dongle. Not a buffer issue.
-- `hciuart`/`hciattach` fails ("Initialization timed out") on this board even with the
-  `Requires=dev-serial1.device` fix. The device tree has a `bluetooth` node under the PL011
-  UART; `dtparam=krnbt=on` makes the kernel (`hci_uart`+`btbcm`) bring up `hci0` instead.
-  `hciuart.service` is disabled.
+  choice). Fixes are physical: keep the phone near, or a USB Bluetooth dongle (in use since 2026-09-11,
+  next bullet). Not a buffer issue.
+- **Speaker adapter since 2026-09-11: TP-Link UB500 Plus** (Realtek RTL8761BU, USB `2357:0604`, firmware
+  `rtl_bt/rtl8761bu_fw.bin` + `_config.bin` from jammy's linux-firmware, loads with no errors; full-speed
+  USB, on the USB 2.0 hub port `1-1.3`). The onboard Broadcom radio is removed with `dtoverlay=disable-bt`
+  (`pi/etc/config.txt`, replaces the old `dtparam=krnbt=on`), so the dongle is the only adapter (`hci0`
+  after a reboot). Pairings live under `/var/lib/bluetooth/<adapter MAC>/` and cannot move between
+  adapters: the phone and laptop were re-paired to `58:04:4F:D8:12:75`; the old onboard entries under
+  `D8:3A:DD:78:3B:0F/` are dead. `pi/bin/bt-speaker-setup` (ExecStartPre of `bt-agent.service`) picks
+  the adapter whose sysfs device path contains `/usb` and configures it over D-Bus
+  (`busctl set-property org.bluez /org/bluez/hciN org.bluez.Adapter1 Alias|Discoverable|Pairable|Powered`);
+  one-shot `bluetoothctl <cmd>` acts on the *first-listed* controller, which with two adapters was the
+  dongle by accident. `/sys/class/bluetooth/` also holds `hciN:M` entries for open connections, so globs
+  for adapters must skip names with `:`. History: `hciuart`/`hciattach` failed ("Initialization timed
+  out") on this board; `dtparam=krnbt=on` (kernel `hci_uart`+`btbcm`) was the fix until the dongle.
+  `hciuart.service` stays disabled; pi-bluetooth's `bthelper@hci0` logs "Dependency failed" at boot and
+  never runs - harmless. `btusb` USB autosuspend is left at default (`power/control=auto`): during the
+  10 min test the dongle stayed `active` and no stutter was seen, so nothing was added.
 - **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is
   *active*** (`scripts/monitors/bluez.lua`: monitor created only on `logind get-state == "active"`; with
   `Linger=yes` and no SSH login the state is "lingering"; the Moonlight tty8 session counts as "online", not
