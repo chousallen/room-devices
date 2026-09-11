@@ -370,3 +370,21 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   the cut is gone. rsyslogd keeps a second plain-text copy in `/var/log/syslog` (no size cap, `/etc/logrotate.d/rsyslog` rotates **weekly**,
   4 rotations kept, checked by the daily logrotate.timer) - separate space, not affected by this cap.
 
+## Keyboard/mouse plugged into the Pi, forwarded to the laptop (measured 2026-09-12 00:40-00:50)
+- Works with nothing added: while `moonlight-stream` runs, Moonlight (SDL KMSDRM, evdev via udev hotplug) opens
+  every `/dev/input/event*` and sends key/button/motion to Sunshine, which injects them on the laptop through
+  uinput devices named `Mouse passthrough` / `Keyboard passthrough` (numbers change per connection; look them up
+  by name in `/proc/bus/input/devices`). Stream stopped = input dead. Ctrl+Alt+Shift+<key> combos are Moonlight's.
+- **Added delay (Pi kernel timestamp -> laptop uinput timestamp, clock offset removed, +-0.5 ms):** mouse buttons
+  n=248: median 1.9 ms, p90 2.8, p99 5.0, max 21 ms (same still or moving); keys n=134: median 2.0 ms, p90 3.0,
+  two outliers 28/37 ms. Ping Pi->laptop during the run: median 1.5, p99 5.7, max 12.5 ms (laptop on 5 GHz Wi-Fi).
+  The outliers are Wi-Fi tail, not the software path. Mouse and keyboard poll at 1 ms (1000 Hz) on both hosts.
+- Recipe: `tools/input-latency.py` (stdlib only, same file on both machines; the Pi has no `evtest` and no
+  python-evdev). Laptop: `echo` + `capture /dev/input/eventN out`; Pi: `capture`, `probe <laptop> out` (NTP-style
+  UDP clock offset, port 46010, offset fitted from the lowest-delay 20 %), then `analyze pi.log laptop.log probe.log
+  [--split T]`. Only EV_KEY events are paired (motion is batched by Moonlight). Kernel autorepeat (value 2) exists
+  on the Pi side only; Moonlight does not forward it, so `analyze` drops it. Raw logs: `build/out/input-latency-2026-09-12/`.
+- Killing the captures: `pkill -f 'input-latenc[y].py'` - a plain `pkill -f input-latency` matched the calling
+  shell's own command line and killed it (exit 144).
+- Decision 2026-09-12: only the **keyboard** lives on the Pi; the mouse stays on the laptop (short wireless range,
+  and pointer motion is the latency-sensitive input).
