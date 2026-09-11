@@ -241,3 +241,15 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   in the background, then `curl -k -u USER:PASS -X POST https://<laptop>:47990/api/pin -d '{"pin":"4321","name":"sallen-pi"}'`.
   The pair command hangs after success (kill it); `moonlight-qt list <laptop>` confirms.
 - Web UI credentials are in `build/out/sunshine-creds.txt` on the Pi (not committed).
+
+## SSH exposure
+- The router forwards TCP 22 from the internet to the Pi (brute-force probes arrive on eth0, ~900/day
+  from one host on 2026-09-10). sshd reads `sshd_config.d/*.conf` in name order and the **first** value
+  of a keyword wins: `50-cloud-init.conf` (`PasswordAuthentication yes`) beats
+  `60-cloudimg-settings.conf` (`no`), so password login was effectively on. `pi/etc/ssh/sshd_config.d/
+  10-hardening.conf` sorts first (`PermitRootLogin no`; root has an empty authorized_keys). Check the
+  effective values with `sudo sshd -T | grep -E 'passwordauth|permitroot'`; `sshd -t` then
+  `systemctl reload ssh` applies without dropping sessions. Keys in `~/.ssh/authorized_keys`: the
+  laptop (chouallenno@gmail.com) and the Pi itself. Tailscale is also up (100.111.120.67).
+
+
