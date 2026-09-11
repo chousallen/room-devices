@@ -173,7 +173,8 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `PacerVsync`); 0002 skips `*_cuvid` decoders (jammy libavcodec 4.4 segfaults in `avcodec_open2()` when
   libnvcuvid is missing, seen with gdb) and accepts `*_v4l2m2m` when the one-frame test decode yields
   EAGAIN/EOF (FFmpeg 4.4's wrapper never outputs the tiny test frame, even after draining; this was the
-  old "Test decode failed: Resource temporarily unavailable" -> SdlRenderer fallback, now gone).
+  old "Test decode failed: Resource temporarily unavailable" -> SdlRenderer fallback, now gone); 0003 periodic video
+  stats log (`MOONLIGHT_STATS_INTERVAL`); 0004 CLI `stream` mode quits on errors instead of an (invisible) dialog.
   Build facts: jammy's SDL 2.0.20 KMSDRM cannot start ("Failed loading udev_device_get_action ...
   undefined symbol: _udev_device_get_action", libsdl-org/SDL#4879) so the Dockerfile builds SDL 2.32.10 +
   SDL_ttf 2.24.0 statically (`Libs.private` folded into the .pc files because qmake calls pkg-config
@@ -412,3 +413,37 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   Test injector (not in the repo): a 40-line python uinput keyboard (`UI_SET_EVBIT`/`UI_SET_KEYBIT`/`UI_DEV_CREATE`,
   `uinput_user_dev` = 1116 B); uinput is built into this kernel (no module), the listener needs ~2 s to notice the new device.
 
+## Laptop drops off the network while the stream runs (measured 2026-09-12 01:07, `build/out/wifi-drop-2026-09-12/`)
+- Last laptop packet T+0; Moonlight's control channel (ENet, 10 s peer timeout) fires at **T+10 s**:
+  `Control stream received unexpected disconnect event` / `Connection terminated: -1`, all stream threads are gone
+  within 2 s (24 -> 9 threads, UDP sockets closed). During the 10 s the Pi floods the laptop's port 47999 with
+  ENet retries (200 -> 800 pkt/s). Until T+10 the monitor holds the last frame.
+- **Then the monitor shows the stale Qt page "Starting Desktop..." and nothing else, indefinitely** (before the
+  pi10 build). Cause, confirmed in the 6.1.0 source: the `stream` CLI creates `StreamSegue` with `quitAfter: true`;
+  `connectionStarted()` hides the Qt window when streaming begins; on an unexpected end `sessionFinished()` opens the
+  "Connection terminated / Error code: -1" dialog on that still-hidden window (`window.visible = true` is only in the
+  non-`quitAfter` branch) and waits for OK. The dialog is never drawn, the screen keeps the last Qt frame, the process
+  idles (8 threads, no log lines), `moonlight-stream.service` stays `active`, the menu never returns, nothing reconnects
+  when the laptop is back. Proof in the journal: `sessionFinished()` calls `SdlGamepadKeyNavigation.enable()`, whose
+  "Found gamecontrollerdb.txt / Loaded 436 new gamepad mappings" lines appear 1 s after the timeout, then nothing.
+  (`Could not set cursor on screen HDMI1: -13` at that moment is a side effect, not the cause.) Recovery was manual:
+  `pi-screen restart` (its stop gives exit status 1, unit `failed`, harmless). Same hang class: `pi-screen start` while
+  the laptop is unreachable -> "Failed to connect to <pc>" dialog after the 30 s computer seek, nobody clicks OK.
+- **Fix: `build/patches/0004-cli-stream-quit-on-error.patch`** (package pi10): in CLI `stream` mode both places log the
+  error and `Qt.quit()` instead of opening a dialog, so the unit goes `inactive` and its ExecStopPost brings the menu
+  back. Menu (non-CLI) behaviour unchanged. Design decision 2026-09-12: return to the menu, do not auto-retry the
+  connection (a retry loop would also run forever after a laptop sleep/shutdown).
+  **Measured with pi10 (2026-09-12 01:32):** stream packets blocked at T+0 -> "Connection terminated: -1" at
+  T+10 s -> "Quitting after stream error (no dialog in CLI mode)" -> unit `inactive`, menu `active` at T+11 s.
+  Launch with the laptop unreachable: "Failed to connect to 192.168.0.193" after 30 s, menu back at T+35 s.
+  Logs: `build/out/wifi-drop-2026-09-12/after-fix-pi10/`.
+- Reproduce a laptop drop without touching the laptop (SSH from the laptop stays up):
+  `sudo iptables -I INPUT -s 192.168.0.193 -p udp --sport 47998:48010 -j DROP` (stream + control channel), remove with
+  `-D` after ~15 s. For the launch-failure case add `-p tcp --sport 47984:47990` before `pi-screen start`.
+- Recorder used: 1 Hz sampler (unit state, MainPID threads, ping, `ss`), `journalctl -f _COMM=moonlight-qt`,
+  `tcpdump -s 120 host <laptop>`; `sampler.sh` is in that directory.
+- Moonlight's paired-host list on the Pi (`~/.config/Moonlight Game Streaming Project/Moonlight.conf`, `[hosts]`) had two
+  entries for the laptop; the stale one (uuid `E811584E-...`, no apps, no MAC, an earlier Sunshine install) produced
+  `Found unexpected PC "sallen-lenovo-ubuntu" looking for "sallen-lenovo-ubuntu"` at every stream start. Removed
+  2026-09-12 (backup `build/out/Moonlight.conf.bak-2026-09-12`). Edit that file only with both Moonlight units stopped:
+  moonlight-qt rewrites it on exit. Live Sunshine id: `curl -s http://192.168.0.193:47989/serverinfo` (`<uniqueid>`).

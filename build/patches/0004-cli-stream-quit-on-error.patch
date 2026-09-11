@@ -1,0 +1,61 @@
+From: local build <sallen@sallen-pi>
+Subject: [PATCH] CLI stream mode: quit on stream/launch errors instead of opening a dialog
+
+Measured 2026-09-12 on the Pi kiosk (moonlight-stream.service runs `moonlight-qt stream ...`):
+when the laptop leaves the network, the control channel times out after 10 s
+("Connection terminated: -1") and StreamSegue.sessionFinished() opens
+streamSegueErrorDialog with quitAfter=true.  In `stream` mode the Qt window was hidden by
+connectionStarted() and this branch never shows it again, so the dialog is invisible; on
+eglfs/KMS the monitor keeps the stale "Starting Desktop..." page and the process (and the
+systemd unit) never ends.  Same for CliStartStreamSegue.onLaunchFailed ("Failed to connect
+to <pc>" after the 30 s computer seek): the dialog is visible there, but nobody can click OK.
+
+Quit instead (exit status 0, the error text is already in the log), so the unit goes
+inactive and its ExecStopPost brings the Moonlight menu back.  The non-CLI (menu) path,
+quitAfter == false, is unchanged.
+---
+diff --git a/app/gui/CliStartStreamSegue.qml b/app/gui/CliStartStreamSegue.qml
+index 14b4b7d..8bc3aad 100644
+--- a/app/gui/CliStartStreamSegue.qml
++++ b/app/gui/CliStartStreamSegue.qml
+@@ -24,9 +24,11 @@ Item {
+     }
+ 
+     function onLaunchFailed(message) {
+-        errorDialog.text = message
+-        errorDialog.open()
++        // Local change (kiosk build): no one can press OK on the error dialog, so the
++        // process would sit on it forever (e.g. "Failed to connect to <pc>" after the 30 s
++        // computer seek). Log and quit so the service unit can react.
+         console.error(message)
++        Qt.quit()
+     }
+ 
+     function onAppQuitRequired(appName) {
+diff --git a/app/gui/StreamSegue.qml b/app/gui/StreamSegue.qml
+index 1617792..50c22cb 100644
+--- a/app/gui/StreamSegue.qml
++++ b/app/gui/StreamSegue.qml
+@@ -80,15 +80,15 @@ Item {
+         SdlGamepadKeyNavigation.enable()
+ 
+         if (quitAfter) {
++            // Local change (kiosk build): in `stream` CLI mode the Qt window was hidden by
++            // connectionStarted() and is never shown again on this path, so a dialog opened here
++            // is invisible (on eglfs/KMS the screen keeps the stale "Starting <app>..." page) and
++            // the process waits forever for an OK nobody can give. The error text was already
++            // logged by displayLaunchError(); just quit so the service unit can react.
+             if (streamSegueErrorDialog.text) {
+-                // Quit when the error dialog is acknowledged
+-                streamSegueErrorDialog.quitAfter = quitAfter
+-                streamSegueErrorDialog.open()
+-            }
+-            else {
+-                // Quit immediately
+-                Qt.quit()
++                console.error("Quitting after stream error (no dialog in CLI mode)")
+             }
++            Qt.quit()
+         } else {
+             // Exit this view
+             stackView.pop()
