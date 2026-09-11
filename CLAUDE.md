@@ -255,6 +255,69 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   The pair command hangs after success (kill it); `moonlight-qt list <laptop>` confirms.
 - Web UI credentials are in `build/out/sunshine-creds.txt` on the Pi (not committed).
 
+## Bluetooth speaker: range and stationary mutes (measured 2026-09-10)
+- The Pi sits in a **metal heatsink case (top/bottom blocks, open sides), kept for cooling**. The Pi 4
+  antenna is a PCB slot at the display-connector corner, under the block: dominant range loss, accepted.
+  No board mod (external antenna). **Superseded 2026-09-11 by the TP-Link UB500 Plus USB dongle** (see
+  the Bluetooth section above); the measurements below describe the onboard radio and are kept as history.
+- **Dongle test 2026-09-11 23:00-23:11 (phone still, < 1 m, aptX, onboard radio powered off, USB autosuspend
+  at default):** 626 s, no missing second, no second below 40 pkt/s, steady 66-70 pkt/s. Failed Contact
+  Counter (HCI `0x05 0x0001`) stayed 0. From 23:06:51 the laptop also paired and streamed (~109 pkt/s, SBC)
+  at the same time with no gaps on either link. The phone's AFH map excluded channels 10-47 (2412-2449 MHz,
+  Wi-Fi channels 1-6), i.e. a 2.4 GHz network was present during the test (Wi-Fi channels 1 and 4 visible).
+  Realtek-specific: `hcitool lq` always returns 0 (not implemented) and `hcitool rssi` reports real dBm
+  (-4 to -36, median about -16) instead of Broadcom's "0 = golden range", so the old lq recipe does not
+  apply; use the packet-gap count and the Failed Contact Counter.
+- Onboard Wi-Fi is **on again** since 2026-09-11 (Bluetooth no longer shares its antenna): `disable-wifi`
+  removed from `pi/etc/config.txt`, `nmcli radio wifi on` live; autoconnect did not fire by itself, an
+  explicit `nmcli con up netplan-wlan0-sallen-router` did (5 GHz ch 161, -45 dBm, 192.168.0.138 next to
+  eth0 192.168.0.101, route metric 600 vs 100). History: it was off 2026-09-10/11 because, while on but
+  *not associated*, NetworkManager ran a full 2.4+5 GHz scan (2.8 s) every 120 s (`iw event -t`) on the
+  shared antenna; a 5 min `btmon` capture showed no packet loss across three scans, so the scans were not
+  the multi-second mutes.
+- **60 min capture 2026-09-10 11:14-11:55 (phone still, < 1 m, streaming over Wi-Fi):** packets from
+  the phone stop for 1-4 s in clusters (11:36:08-11:37:28: nine gaps) and then arrive in a burst (up to
+  358 pkt/s = the "jump"). Every multi-second gap falls inside a period where `hcitool lq` had collapsed
+  (205 -> 4 within 30 s, `rssi` still 0); bad periods lasted 11:36-11:43 and 11:52-11:55, good periods
+  had only isolated 1 s hiccups. None of the 30 Wi-Fi scans lined up with a gap, and this Claude session
+  was idle during the worst cluster. **Two kinds of gap, told apart by the AVDTP signalling channel**:
+  gaps preceded by a phone-sent SUSPEND (signal id 0x09) and ended by START (0x07) are the music app
+  pausing (track change / rebuffer, 2-6 s, 3-4 per 30 min, happen with headphones too); gaps with *no*
+  SUSPEND are radio stalls. The 11:36-11:37 cluster (six gaps) had no SUSPEND and coincided with the lq
+  collapse = radio. Recipe: `btmon -T -r cap.btsnoop | awk '/^[<>] ACL Data/{ts=$NF;d=$1}
+  /Channel: 64 len/{w=1;next} w{if($1~/^[0-9a-f][0-9a-f]$/)print substr(ts,1,12),d,$1,$2,$3; w=0}' |
+  awk '$5=="09"||$5=="07"'` (channel 64 was the AVDTP signalling CID in both captures; check yours).
+- **Router 2.4 GHz switched off (user, 2026-09-10 ~14:15):** 39 min captured (14:19-14:58): zero radio
+  stalls, every gap was an app SUSPEND/START, lq never below 130 (medians 135-197, no collapse). With
+  2.4 GHz on, 41 min had two lq-collapse episodes and one radio-stall cluster. Strong indication that
+  2.4 GHz Wi-Fi traffic in the room was the interferer and the Pi (antenna under the heatsink) the only
+  victim; headphones on the same phone were fine. Not yet proven over a longer period.
+- Ruled out for the stationary mutes: CPU load (4 cores burned, `pw-top` ERR stayed 0 on the bluez
+  source and the ALSA sink; PipeWire data threads are RR 20), Bluetooth UART overruns
+  (`/proc/tty/driver/ttyAMA` shows none), USB 3 HDD noise (190 MB/s raw read: `hcitool lq` 205 -> 197),
+  Bluetooth firmware (`BCM4345C0 003.001.025 build 0370`, newer than the Cypress fix 0339), Wi-Fi NVRAM
+  (`btc_mode=1` + Cypress params already), laptop Moonlight traffic (laptop is on 5 GHz ch 161).
+- `hcitool lq <phone>` (255 best, updates every ~5 s) is **bimodal** with the phone still < 1 m away:
+  minutes at 175-215, minutes at 9-55, while `hcitool rssi` stays 0 (= strong level). Low quality at
+  strong level = bit errors from interference, not distance. The phone side is *not* the weak link: the
+  same phone, same desk, same Wi-Fi streaming feeds Bluetooth headphones with no dropouts. So the Pi's
+  receiver is what fails: thin margin (antenna under the heatsink block) plus 2.4 GHz noise near it.
+  Candidates still untested, each needs a 10 min `hcitool lq` log on/off with the phone still:
+  HDMI output / Moonlight (cheap HDMI cables radiate broadband noise; `pi-screen stop` vs start),
+  the USB 3 HDD and its cable (minor at strong signal), the monitor itself, a microwave oven
+  (episodes lasted 3-7 min).
+- Measurement recipes: link quality loop `hcitool lq $P; hcitool rssi $P` each second (Broadcom only, see
+  the dongle note above; add `-i hciN` when more than one adapter exists). Packet rate from the phone:
+  `sudo btmon [-i hciN] -w cap.btsnoop`, then `tools/btsnoop-gaps.py cap.btsnoop` prints, per ACL
+  connection handle, the pkt/s distribution, missing seconds and seconds below 40 pkt/s (aptX: 66-70 pkt/s
+  of dlen 660; a mute = missing/low seconds). It reads btmon's monitor format (datalink 2001, opcode 5 =
+  ACL RX) directly, because `btmon -T -r` abbreviates the handle to "H.." when stdout is not a wide tty
+  (also under `script`/a pty it crawled at a few KB/min on a 48 MB file). **Do not pipe live `btmon` to
+  grep**: stdout is block-buffered (lost on timeout). Do not `pkill -f` a pattern that appears in your
+  own command line.
+- Codec: phone negotiates **aptX** (`api.bluez5.codec` on the bluez_input node). libspa-bluez5 1.0.7 has
+  `bluez5.codecs` (e.g. `"[ sbc ]"`) but no SBC bitpool cap.
+
 ## SSH exposure
 - The router forwards TCP 22 from the internet to the Pi (brute-force probes arrive on eth0, ~900/day
   from one host on 2026-09-10). sshd reads `sshd_config.d/*.conf` in name order and the **first** value
@@ -265,4 +328,21 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `systemctl reload ssh` applies without dropping sessions. Keys in `~/.ssh/authorized_keys`: the
   laptop (chouallenno@gmail.com) and the Pi itself. Tailscale is also up (100.111.120.67).
 
+
+## Bluetooth speaker: what the Pi records when the phone drops out (checked 2026-09-11 23:50)
+- **Nothing, unless `btmon` is running.** For a 5 min dropout reported by the user, the Pi had zero kernel,
+  bluetoothd, PipeWire or WirePlumber lines; `pw-top` ERR stayed 0 on the bluez source and the ALSA sink
+  (missing radio packets are not xruns); `/proc/pressure/cpu` avg300 was 5 %; `hciconfig` RX/TX errors 0.
+  Only a capture at the time of the event can tell an app SUSPEND/START pause from a radio stall.
+- Dongle USB autosuspend (`/sys/bus/usb/devices/1-1.3/power/runtime_suspended_time`, ms): suspends only
+  while the phone is connected but idle (593 s of the first 32 min after boot); 0 ms growth during 45 s of
+  streaming. So autosuspend can only glitch the start of playback, not a running stream.
+- `tools/btsnoop-gaps.py` reports a false "missing seconds" entry when a capture crosses midnight
+  (per-second keys are (h, m, s) tuples; the day is not part of the key).
+- `sudo iw dev wlan0 scan` while NetworkManager holds wlan0 associated returned nothing, and
+  `nmcli dev wifi rescan` produced no `iw event` scan lines either, so "does a Pi Wi-Fi scan next to the
+  dongle cause a gap" is untested.
+- First undervoltage on this board: `hwmon: Undervoltage detected!` 2026-09-11 23:32:15-19 (4 s), first boot
+  with the UB500 dongle + USB HDD; `vcgencmd get_throttled` = 0x50000 (undervoltage + throttling occurred
+  since boot). The previous 17 h boot had none.
 
