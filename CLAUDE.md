@@ -346,3 +346,27 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   with the UB500 dongle + USB HDD; `vcgencmd get_throttled` = 0x50000 (undervoltage + throttling occurred
   since boot). The previous 17 h boot had none.
 
+## Moonlight HEVC log flood (2026-09-11 06:33 -> fixed 2026-09-12 with the pi9 build)
+- With the rpi-ffmpeg fork, `hevc_v4l2request` passes its test decode, so Sunshine now streams
+  **HEVC Main 10** ("Video stream: 1920x1080 60.00 FPS (Codec: HEVC)", `rpivid_h265_start` in dmesg).
+- Cause: the fork's `libavcodec/v4l2_req_hevc_vx.c` (7) and `v4l2_request_hevc.c` (1) have raw
+  `fprintf(stderr, "<<< %s...", __func__)` prints, 6 per frame (`start_frame`, `end_frame`, `decode_slice`,
+  `frame_post_process`, `alloc_frame`, `free_frame_priv`) = ~360 journal lines/s at 1080p60, a 128 MB user
+  journal file every 7 min, journal 3.9 GB, `systemd-journald` ~26 % + `rsyslogd` ~16 % of a core. They bypass
+  av_log, so Moonlight's log level cannot filter them. Fix: `build/Dockerfile` seds every `__func__` fprintf
+  in those two files into `av_log(NULL, AV_LOG_TRACE, ...)` (a `! grep` guard fails the build if one is left),
+  package `moonlight-qt-pi 6.1.0-ubuntu2204pi9` (`build/out/`). Measured after install + `pi-screen restart`:
+  12 lines per 5 s in steady state (the 0003 stats block), stream 60/60 rendered, 0 drops.
+- What still logs at stream start (~1000 lines in the first 7 s, then stops): moonlight-qt sets
+  `av_log_set_level(AV_LOG_DEBUG)` while it probes decoders (ffmpeg.cpp) and back to INFO afterwards, so the
+  fork's debug lines (`Buf caps ... insufficient` x420, `probe_video_device`, `Format drm_prime chosen by
+  get_format()`, `<<< v4l2_request_hevc_init/uninit` via av_log) appear once per session. The 176 "Could not
+  queue DRM page flip (Permission denied)" lines are the menu->stream DRM master handover, unrelated.
+- `journalctl` over the flooded boots (before 2026-09-12 00:07) takes minutes (kill with `pkill -x journalctl`,
+  never `pkill -f`); filter with `grep -v '<<<'`. Rate check: `journalctl _COMM=moonlight-qt --since -60s -o cat | wc -l` (expect ~144, the
+  stats block); a piped `journalctl -f` killed by `timeout` can return nothing, do not count with it.
+- Journal capped at 1 GB since 2026-09-12 (`pi/etc/systemd/journald.conf.d/10-size.conf`, `SystemMaxUse=1G`;
+  default was 4 GB = min(10 % of /, 4 GB)). Applying it vacuumed 4.1 GB -> 1.0 GB at once; history before
+  the cut is gone. rsyslogd keeps a second plain-text copy in `/var/log/syslog` (no size cap, `/etc/logrotate.d/rsyslog` rotates **weekly**,
+  4 rotations kept, checked by the daily logrotate.timer) - separate space, not affected by this cap.
+

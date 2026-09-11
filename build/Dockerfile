@@ -28,7 +28,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get purge -y libavcodec-dev libavformat-dev libswscale-dev libavutil-dev libavfilter-dev 2>/dev/null; \
   apt-get autoremove -y; rm -rf /var/lib/apt/lists/* \
   && git clone --depth 1 --branch ${FFMPEG_TAG} https://github.com/jc-kynesim/rpi-ffmpeg /tmp/ff \
-  && cd /tmp/ff && ./configure \
+  && cd /tmp/ff \
+  # The fork's v4l2-request HEVC path has raw fprintf(stderr) trace prints (6 per frame, ~340 lines/s at
+  # 1080p60) that flooded the Pi's journal (rotated to ~4 h of history, 2026-09-10). Make them trace-level.
+  && sed -i '/__func__/s/fprintf(stderr, /av_log(NULL, AV_LOG_TRACE, /' \
+       libavcodec/v4l2_req_hevc_vx.c libavcodec/v4l2_request_hevc.c \
+  && ! grep -q 'fprintf(stderr, "<<<' libavcodec/v4l2_req_hevc_vx.c \
+  && ./configure \
        --prefix=/usr/local --libdir=/usr/local/lib \
        --enable-shared --disable-static --enable-pic \
        --enable-gpl --enable-v4l2-request --enable-libdrm --enable-libudev --enable-sand \
