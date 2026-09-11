@@ -31,8 +31,16 @@ sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthorit
 sudo install -m644 etc/bluetooth/main.conf /etc/bluetooth/main.conf
 sudo install -Dm644 etc/systemd/journald.conf.d/10-size.conf /etc/systemd/journald.conf.d/10-size.conf && sudo systemctl restart systemd-journald
 sudo install -m644 etc/ssh/sshd_config.d/10-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf && sudo sshd -t && sudo systemctl reload ssh
-sudo install -m644 systemd/moonlight.service systemd/pi-player.service systemd/bt-agent.service /etc/systemd/system/
-sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup /usr/local/bin/
+sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service \
+                   systemd/pi-console-keys.service /etc/systemd/system/
+sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys /usr/local/bin/
+# The Moonlight menu owns tty1 (Ctrl+Alt+F1), the stream tty2; text consoles are tty3-6.
+# Mask BOTH the static getty and the on-demand autovt for tty1/tty2, or logind respawns a login
+# prompt on the menu/stream VT and it resets the K_OFF keyboard mode SDL/Qt set (Ctrl+Alt+Fx would
+# then switch the Pi console mid-stream instead of only reaching the laptop).
+sudo systemctl mask getty@tty1.service getty@tty2.service autovt@tty1.service autovt@tty2.service
+sudo systemctl stop getty@tty1.service getty@tty2.service 2>/dev/null || true
+sudo systemctl daemon-reload && sudo systemctl enable --now pi-console-keys.service
 sudo systemctl daemon-reload
 sudo systemctl disable hciuart 2>/dev/null || true      # onboard radio is off (dtoverlay=disable-bt); the USB dongle is the speaker adapter
 sudo systemctl enable bluetooth bt-agent

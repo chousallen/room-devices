@@ -5,7 +5,7 @@
 Description=Moonlight streaming receiver on the monitor
 After=user@1000.service systemd-user-sessions.service
 Wants=user@1000.service
-Conflicts=getty@tty7.service pi-player.service
+Conflicts=getty@tty1.service pi-player.service
 
 [Service]
 # the Pi is shared with other services; keep the decoder/pacer threads ahead of them
@@ -16,7 +16,7 @@ User=sallen
 Group=sallen
 SupplementaryGroups=video render input audio
 PAMName=login
-TTYPath=/dev/tty7
+TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 StandardInput=tty
@@ -27,7 +27,12 @@ Environment=QT_QPA_PLATFORM=eglfs
 Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_kms
 Environment=QT_QPA_EGLFS_ALWAYS_SET_MODE=1
 Environment=SDL_AUDIODRIVER=pulseaudio
+# Make tty1 the foreground VT: Qt puts its keyboard in K_OFF there, so the kernel ignores Ctrl+Alt+Fx (and
+# ordinary keys no longer reach a login prompt). pi-console-keys.service turns Ctrl+Alt+F2..6 into "stop menu,
+# show that console" and Ctrl+Alt+F1 into "menu back". kbd_mode -u restores tty7 if Qt died without cleanup.
+ExecStartPre=+/usr/bin/chvt 1
 ExecStart=/usr/local/bin/moonlight-qt
+ExecStopPost=+/usr/bin/kbd_mode -u -C /dev/tty1
 Restart=on-failure
 RestartSec=3
 

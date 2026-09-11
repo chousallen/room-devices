@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Ctrl+Alt+Fx on a keyboard plugged into the Pi (system service, root).
+
+The Moonlight units switch the foreground VT to their own tty (menu: chvt 1, stream: chvt 2), where Qt / SDL put
+the keyboard in K_OFF, so the kernel itself never acts on Ctrl+Alt+Fx while either runs.  This service is the
+only thing that does:
+  stream running          -> nothing here; Moonlight forwards the combo to the laptop
+  menu running, F2..F6    -> stop the menu (frees the display) and chvt n; logind's autovt puts a login on ttyn
+  nothing running, F1     -> start the menu (its ExecStartPre does chvt 1); F7..F12 do the same (no blank VTs)
+  nothing running, F2..F6 -> nothing; the console is in normal mode and the kernel switches by itself
+Reads every /dev/input/event* (non-exclusive, rescanned every 2 s for hotplug).  Pure stdlib.
+"""
+import os, select, struct, subprocess, sys, time
+
+EV_FMT, EV_SIZE, EV_KEY = "llHHi", struct.calcsize("llHHi"), 1
+CTRL, ALT = {29, 97}, {56, 100}
+FKEY = {59: 1, 60: 2, 61: 3, 62: 4, 63: 5, 64: 6, 65: 7, 66: 8, 67: 9, 68: 10, 87: 11, 88: 12}
+MENU, STREAM, PLAYER = "moonlight.service", "moonlight-stream.service", "pi-player.service"
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def active(*units):
+    r = subprocess.run(["systemctl", "is-active", *units], capture_output=True, text=True)
+    return [s == "active" for s in r.stdout.split()]
+
+
+def handle(n):
+    menu, stream, player = active(MENU, STREAM, PLAYER)
+    if stream or player:
+        log(f"Ctrl+Alt+F{n}: stream/player running, ignored (Moonlight forwards it)")
+        return
+    if menu:
+        if 2 <= n <= 6:
+            log(f"Ctrl+Alt+F{n}: menu running -> stop menu, chvt {n}")
+            subprocess.run(["systemctl", "stop", MENU])
+            subprocess.run(["chvt", str(n)])
+        else:
+            log(f"Ctrl+Alt+F{n}: menu running, ignored")
+        return
+    if n == 1 or n >= 7:
+        log(f"Ctrl+Alt+F{n}: console -> start menu")
+        subprocess.run(["systemctl", "--no-block", "start", MENU])
+    else:
+        log(f"Ctrl+Alt+F{n}: console, kernel switches by itself")
+
+def main():
+    fds = {}          # fd -> path
+    mods = {}         # fd -> set of held modifier codes
+    last_scan = 0.0
+    poll = select.poll()
+    while True:
+        if time.monotonic() - last_scan > 2.0:
+            last_scan = time.monotonic()
+            for name in os.listdir("/dev/input"):
+                path = "/dev/input/" + name
+                if name.startswith("event") and path not in fds.values():
+                    try:
+                        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                    except OSError:
+                        continue
+                    fds[fd] = path; mods[fd] = set(); poll.register(fd, select.POLLIN)
+        for fd, ev in poll.poll(2000):
+            if ev & (select.POLLERR | select.POLLHUP):
+                poll.unregister(fd); os.close(fd); fds.pop(fd, None); mods.pop(fd, None); continue
+            try:
+                buf = os.read(fd, EV_SIZE * 64)
+            except OSError:
+                poll.unregister(fd); os.close(fd); fds.pop(fd, None); mods.pop(fd, None); continue
+            for i in range(0, len(buf) - EV_SIZE + 1, EV_SIZE):
+                _, _, typ, code, val = struct.unpack_from(EV_FMT, buf, i)
+                if typ != EV_KEY:
+                    continue
+                if code in CTRL or code in ALT:
+                    (mods[fd].add if val else mods[fd].discard)(code)
+                elif val == 1 and code in FKEY and (mods[fd] & CTRL) and (mods[fd] & ALT):
+                    handle(FKEY[code])
+
+
+if __name__ == "__main__":
+    main()

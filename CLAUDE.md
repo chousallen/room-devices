@@ -388,3 +388,27 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   shell's own command line and killed it (exit 144).
 - Decision 2026-09-12: only the **keyboard** lives on the Pi; the mouse stays on the laptop (short wireless range,
   and pointer motion is the latency-sensitive input).
+- **Ctrl+Alt+Fx on the Pi keyboard, since 2026-09-12 (user requirement: stream -> combo controls the laptop; menu ->
+  the Pi's text console appears on the monitor).** Background: the kernel applies the keyboard mode of the *foreground*
+  VT. SDL (stream) and Qt (menu) put K_OFF only on their own tty8 / tty7, which used to never be foreground (tty1 was),
+  so every key also reached the tty1 login prompt (`agetty: checkname failed`, getty restarts) and Ctrl+Alt+Fx switched
+  the invisible Pi console *and* was forwarded to the laptop. Now:
+  `moonlight.service` has `ExecStartPre=+/usr/bin/chvt 1` (menu on tty1, Ctrl+Alt+F1), `moonlight-stream.service` has `ExecStartPre=+/usr/bin/chvt 2`
+  (menu tty1 / stream tty2; both `ExecStopPost=+/usr/bin/kbd_mode -u -C /dev/ttyN` to undo K_OFF if the program died uncleanly), so while either
+  runs the kernel ignores Ctrl+Alt+Fx and ordinary keys reach no login prompt. **tty1 and tty2 are inside logind's
+  autovt range (1-6), so `getty@tty1/tty2` AND `autovt@tty1/tty2` are masked** (`install.sh`); without that logind
+  respawns a login on the menu/stream VT which resets K_OFF, and Ctrl+Alt+Fx switches the Pi console mid-stream (seen
+  2026-09-12 02:01: getty@tty2 up, tty2 in Unicode mode). tty7/tty8 (the earlier choice) needed no masking because
+  autovt does not cover them. `pi-console-keys.service` (root,
+  `pi/bin/pi-console-keys`, stdlib python reading every `/dev/input/event*`, rescans every 2 s for hotplug) is the only
+  thing acting on the combo: stream or pi-player active -> nothing; menu active + F2..F6 -> `systemctl stop moonlight`
+  then `chvt n` (logind's autovt spawns `getty@ttyn`, fbcon draws the login once Qt released DRM master); nothing
+  active + F1 or F7..F12 -> `systemctl start moonlight`. Verified 2026-09-12 01:52 with a uinput virtual keyboard and by the
+  user on the real one: menu -> Ctrl+Alt+F3 -> login prompt on the monitor -> Ctrl+Alt+F1 -> menu. Log:
+  `journalctl -u pi-console-keys`. A menu stopped this way shows `failed` (moonlight-qt exits 1 on SIGTERM; cosmetic,
+  `Restart=on-failure` does not fire after an explicit stop). Check the stream state: `cat /sys/class/tty/tty0/active`
+  = tty2 and `kbd_mode -C /dev/tty2` = "unknown mode". Console login on the Pi is only reachable from the menu (or with
+  both units stopped), never during a stream: quit the stream first (Ctrl+Alt+Shift+Q, or `pi-screen stop`).
+  Test injector (not in the repo): a 40-line python uinput keyboard (`UI_SET_EVBIT`/`UI_SET_KEYBIT`/`UI_DEV_CREATE`,
+  `uinput_user_dev` = 1116 B); uinput is built into this kernel (no module), the listener needs ~2 s to notice the new device.
+

@@ -1,0 +1,13 @@
+# Ctrl+Alt+Fx on the Pi's own keyboard: leave the menu for a text console and come back (see pi/bin/pi-console-keys).
+# While the stream runs it does nothing, so the combo only reaches the laptop.
+[Unit]
+Description=Ctrl+Alt+Fx handling for the Pi keyboard (menu <-> console)
+After=systemd-udevd.service
+
+[Service]
+ExecStart=/usr/local/bin/pi-console-keys
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

@@ -1,7 +1,7 @@
 # One-shot media player on the monitor; started by `pi-play`. Stops Moonlight while it runs.
 [Unit]
 Description=Room media player (GStreamer, hardware decode)
-Conflicts=moonlight.service getty@tty7.service
+Conflicts=moonlight.service getty@tty1.service
 # After= the menu too, or the player opens /dev/dri while the menu still holds DRM master.
 After=user@1000.service moonlight.service
 
