@@ -1,0 +1,10 @@
+# Started by udev (pi/etc/udev/rules.d/60-bt-speaker-dongle.rules) each time the USB Bluetooth
+# dongle appears: powers it, sets the alias, makes it discoverable and pairable.
+[Unit]
+Description=Bluetooth speaker adapter setup (on dongle hotplug)
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/bt-speaker-setup

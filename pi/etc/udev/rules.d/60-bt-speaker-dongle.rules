@@ -1,0 +1,8 @@
+# TP-Link UB500 Plus Bluetooth dongle (Realtek RTL8761BU, USB 2357:0604), the speaker adapter.
+# 1. Never let the kernel USB-autosuspend it: after ~10 days uptime the chip stopped answering HCI
+#    commands ("hci0: command 0x0406 tx timeout", "usb 1-1.3: Failed to suspend device, error -110",
+#    2026-09-22) and then died on the USB bus too; only a physical replug revives it.
+# 2. Whenever the dongle (re)appears, run the speaker setup again so the new hci0 is powered,
+#    discoverable and pairable (bt-agent only does that once, at its own start).
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="2357", ATTR{idProduct}=="0604", TEST=="power/control", \
+  ATTR{power/control}="on", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bt-speaker-setup.service"

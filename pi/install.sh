@@ -29,9 +29,10 @@ install -m644 systemd/user/rtp-speaker.service "$H/.config/systemd/user/rtp-spea
 echo "== system files"
 sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthority/50-local.d/50-rtkit-sallen.pkla
 sudo install -m644 etc/bluetooth/main.conf /etc/bluetooth/main.conf
+sudo install -m644 etc/udev/rules.d/60-bt-speaker-dongle.rules /etc/udev/rules.d/ && sudo udevadm control --reload   # dongle: no USB autosuspend, re-setup on hotplug
 sudo install -Dm644 etc/systemd/journald.conf.d/10-size.conf /etc/systemd/journald.conf.d/10-size.conf && sudo systemctl restart systemd-journald
 sudo install -m644 etc/ssh/sshd_config.d/10-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf && sudo sshd -t && sudo systemctl reload ssh
-sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service \
+sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service systemd/bt-speaker-setup.service \
                    systemd/pi-console-keys.service /etc/systemd/system/
 sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys /usr/local/bin/
 # The Moonlight menu owns tty1 (Ctrl+Alt+F1), the stream tty2; text consoles are tty3-6.
