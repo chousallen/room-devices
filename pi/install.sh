@@ -34,7 +34,7 @@ sudo install -Dm644 etc/systemd/journald.conf.d/10-size.conf /etc/systemd/journa
 sudo install -m644 etc/ssh/sshd_config.d/10-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf && sudo sshd -t && sudo systemctl reload ssh
 sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service systemd/bt-speaker-setup.service \
                    systemd/pi-console-keys.service /etc/systemd/system/
-sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys /usr/local/bin/
+sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys bin/pi-screen /usr/local/bin/
 # The Moonlight menu owns tty1 (Ctrl+Alt+F1), the stream tty2; text consoles are tty3-6.
 # Mask BOTH the static getty and the on-demand autovt for tty1/tty2, or logind respawns a login
 # prompt on the menu/stream VT and it resets the K_OFF keyboard mode SDL/Qt set (Ctrl+Alt+Fx would
@@ -42,6 +42,8 @@ sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-con
 sudo systemctl mask getty@tty1.service getty@tty2.service autovt@tty1.service autovt@tty2.service
 sudo systemctl stop getty@tty1.service getty@tty2.service 2>/dev/null || true
 sudo systemctl daemon-reload && sudo systemctl enable --now pi-console-keys.service
+# The idle screen on tty1 is pi-dashboard.service from the ~/Dashboard repo (its install.sh enables it and
+# disables moonlight.service); moonlight-stream/pi-player hand the screen back to it.
 sudo systemctl daemon-reload
 sudo systemctl disable hciuart 2>/dev/null || true      # onboard radio is off (dtoverlay=disable-bt); the USB dongle is the speaker adapter
 sudo systemctl enable bluetooth bt-agent
@@ -58,4 +60,4 @@ systemctl --user restart pipewire
 sleep 3; systemctl --user restart rtp-speaker.service
 sleep 2; systemctl --user --no-pager is-active pipewire wireplumber pipewire-pulse rtp-speaker | paste -sd' '
 wpctl status | sed -n '/Sinks/,/Sink endpoints/p' | head -4
-echo "done. Enable the monitor receiver with: sudo systemctl enable --now moonlight.service"
+echo "done. Idle screen: install ~/Dashboard (./install.sh there), then sudo systemctl start pi-dashboard.service"
