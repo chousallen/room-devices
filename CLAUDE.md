@@ -256,11 +256,27 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   LP 1-frame VBV (stock) 132 kB / ~400 kB; LP VBV 4, 8 or 16 + VBR all ~360 kB / 500-900 kB (the LP encoder's
   ceiling, VBV size beyond 4 changes nothing); full encoder + VBV 8 + VBR 425 kB / ~1 MB spread over ~8 frames
   (it keeps refining for 130 ms), 60 fps with 0 drops on the Pi. CBR (the `vaapi_rc_mode = 0` auto choice for
-  VBV > 1) pads every frame to a constant 101 kB = 49 Mbps of filler on a still screen: always set `vaapi_rc_mode = 1`.
-  Still frames stay 4-7 kB in every VBR variant, i.e. no encoder refines a still picture; only the first frames count.
-  Chosen config: `laptop/sunshine/sunshine.conf` (full encoder, VBV 8, VBR) = `~/.config/sunshine/sunshine.conf`.
+  VBV > 1) pads every frame to a constant 101 kB = 49 Mbps on a still screen, and the padding is inside the slice
+  data, not 0xFF filler NALs: the CBR frames zlib-compress to 14 % of their size (real picture frames to 100 %),
+  so CBR does not refine either — always set `vaapi_rc_mode = 1` (or 3). Still frames stay 4-7 kB in every VBR
+  variant: no mode of this encoder refines a still picture; only the first frames after a change count. The video
+  RTP payload is plain HEVC on the LAN (NAL start codes visible), so such payload checks work on a pcap.
+  Round 2 (5 Mbps stress test still "hung" blurry; dense-text 1080p test images via `eog -f`, Pi-side capture):
+  at 5 Mbps the first text frame is 46 kB (VBV 8, VBR) and nothing refines. Patch 0003 also adds `vaapi_max_qp` /
+  `vaapi_min_qp` (ffmpeg qmin/qmax -> driver min_qp/max_qp) and `vaapi_rc_mode = 3` (CQP, uses `qp`). iHD honours
+  `max_qp`, but as a ceiling it makes the encoder re-encode the desktop at ~30 Hz forever: 35 Mbps average with
+  `vaapi_max_qp = 20`, 17 Mbps with 24, on an almost still screen — rejected. CQP is clean: still frames 4 kB,
+  a full-screen text change arrives at full quality within 8 frames (~3.5 MB in 130 ms at qp 20-22, 0 drops),
+  5.5 Mbps average on the test; sustained noise-like 1080p60 video costs ~60 Mbps at qp 22 (0 netDropped over
+  Wi-Fi). The client `--bitrate` is ignored in CQP. Chosen config: `laptop/sunshine/sunshine.conf`
+  (`vaapi_low_power = 0`, `vaapi_rc_mode = 3`, `qp = 22`) = `~/.config/sunshine/sunshine.conf`; installed build
+  2026.1013.034356. The 1-frame-VBV / VBR findings above still describe modes 0-2.
   Measure a config: `tcpdump` on the Pi while `eog -f <image>` opens/closes on the laptop
   (`XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0`), then `tools/stream-frame-sizes.py`.
+  A Sunshine Docker build on the laptop (load average ~26) starves Sunshine's capture/encode threads: the Pi
+  received 46 fps with 39 gaps > 25 ms per 8 s (motion visibly trembles, like before the vsync pacer); it
+  recovers by itself when the compile ends. `nice` on `docker build` does not help (the compilers run under
+  dockerd as root) — rebuild while no stream is running.
   Restarting `sunshine` more than ~3 times in a minute trips systemd's start limit (`start-limit-hit`, unit
   shows failed, Moonlight gets ConnectionRefused): `systemctl --user reset-failed sunshine && systemctl --user start sunshine`.
 

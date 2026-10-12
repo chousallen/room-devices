@@ -1,8 +1,8 @@
 diff --git a/docs/configuration.md b/docs/configuration.md
-index 5ef85dc..8bc1bad 100644
+index 5ef85dc..8936ca1 100644
 --- a/docs/configuration.md
 +++ b/docs/configuration.md
-@@ -2970,6 +2970,111 @@ editing the `conf` file in a text editor. Use the examples as reference.
+@@ -2970,6 +2970,165 @@ editing the `conf` file in a text editor. Use the examples as reference.
      </tr>
  </table>
  
@@ -65,9 +65,63 @@ index 5ef85dc..8bc1bad 100644
 +        <td>CBR</td>
 +    </tr>
 +    <tr>
++        <td></td>
++        <td>3</td>
++        <td>CQP (every frame at [qp](#qp), no bitrate limit)</td>
++    </tr>
++    <tr>
 +        <td>Example</td>
 +        <td colspan="2">@code{}
 +            vaapi_rc_mode = 2
++            @endcode</td>
++    </tr>
++</table>
++
++### vaapi_max_qp
++
++<table>
++    <tr>
++        <td>Description</td>
++        <td colspan="2">
++            Highest quantizer (1-51) the driver's rate control may use; 0 keeps the driver default. A lower
++            value is a quality floor: the first frame after a scene change cannot be coarser than this, at the
++            cost of exceeding the bitrate for that frame. Not used in CQP mode.
++        </td>
++    </tr>
++    <tr>
++        <td>Default</td>
++        <td colspan="2">@code{}
++            0
++            @endcode</td>
++    </tr>
++    <tr>
++        <td>Example</td>
++        <td colspan="2">@code{}
++            vaapi_max_qp = 30
++            @endcode</td>
++    </tr>
++</table>
++
++### vaapi_min_qp
++
++<table>
++    <tr>
++        <td>Description</td>
++        <td colspan="2">
++            Lowest quantizer (1-51) the driver's rate control may use; 0 keeps the driver default. Not used in
++            CQP mode.
++        </td>
++    </tr>
++    <tr>
++        <td>Default</td>
++        <td colspan="2">@code{}
++            0
++            @endcode</td>
++    </tr>
++    <tr>
++        <td>Example</td>
++        <td colspan="2">@code{}
++            vaapi_min_qp = 18
 +            @endcode</td>
 +    </tr>
 +</table>
@@ -115,45 +169,51 @@ index 5ef85dc..8bc1bad 100644
  
  ### vk_tune
 diff --git a/src/config.cpp b/src/config.cpp
-index a79f7d8..248ffc2 100644
+index a79f7d8..f3b2260 100644
 --- a/src/config.cpp
 +++ b/src/config.cpp
-@@ -499,6 +499,9 @@ namespace config {
+@@ -499,6 +499,11 @@ namespace config {
  
      {
        false,  // strict_rc_buffer
 +      1,  // vbv_frames
 +      0,  // rc_mode
 +      -1,  // low_power
++      0,  // min_qp
++      0,  // max_qp
      },  // vaapi
  
      {
-@@ -1166,6 +1169,9 @@ namespace config {
+@@ -1166,6 +1171,11 @@ namespace config {
      int_f(vars, "vt_realtime", video.vt.vt_realtime, vt::rt_from_view);
  
      bool_f(vars, "vaapi_strict_rc_buffer", video.vaapi.strict_rc_buffer);
 +    int_f(vars, "vaapi_vbv_frames", video.vaapi.vbv_frames);
 +    int_f(vars, "vaapi_rc_mode", video.vaapi.rc_mode);
 +    int_f(vars, "vaapi_low_power", video.vaapi.low_power);
++    int_f(vars, "vaapi_min_qp", video.vaapi.min_qp);
++    int_f(vars, "vaapi_max_qp", video.vaapi.max_qp);
  
      int_f(vars, "vk_tune", video.vk.tune);
      int_f(vars, "vk_rc_mode", video.vk.rc_mode);
 diff --git a/src/config.h b/src/config.h
-index eb778a3..5cf2b5a 100644
+index eb778a3..fad8e87 100644
 --- a/src/config.h
 +++ b/src/config.h
-@@ -85,6 +85,9 @@ namespace config {
+@@ -85,6 +85,11 @@ namespace config {
  
      struct {
        bool strict_rc_buffer;
 +      int vbv_frames;  // size of the single-frame VBV window in frames (1 = upstream)
-+      int rc_mode;  // 0 = auto (VBR for a 1-frame VBV, CBR otherwise), 1 = vbr, 2 = cbr
++      int rc_mode;  // 0 = auto (VBR for a 1-frame VBV, CBR otherwise), 1 = vbr, 2 = cbr, 3 = cqp (uses qp)
 +      int low_power;  // -1 = auto (prefer LP), 0 = full encoder, 1 = LP only
++      int min_qp;  // 0 = driver default; otherwise VAEncMiscParameterRateControl.min_qp
++      int max_qp;  // 0 = driver default; otherwise VAEncMiscParameterRateControl.max_qp (quality floor)
      } vaapi;
  
      struct {
 diff --git a/src/platform/linux/vaapi.cpp b/src/platform/linux/vaapi.cpp
-index 525ef76..d0b38a0 100644
+index 525ef76..45df7a1 100644
 --- a/src/platform/linux/vaapi.cpp
 +++ b/src/platform/linux/vaapi.cpp
 @@ -160,11 +160,17 @@ namespace va {
@@ -179,8 +239,25 @@ index 525ef76..d0b38a0 100644
        for (auto ep_pref : ep_preferences) {
          if (std::find(entrypoints.begin(), entrypoints.end(), ep_pref) != entrypoints.end()) {
            return ep_pref;
-@@ -283,13 +289,23 @@ namespace va {
-       if (config::video.vaapi.strict_rc_buffer ||
+@@ -280,16 +286,39 @@ namespace va {
+       // When we have to resort to the default 1 second VBV for encoding quality reasons,
+       // we stick to CBR in order to avoid encoding huge frames after bitrate undershoots
+       // leave headroom available in the RC window.
+-      if (config::video.vaapi.strict_rc_buffer ||
++      // vaapi_min_qp / vaapi_max_qp: QP limits for the driver's rate control (ffmpeg passes
++      // qmin/qmax as min_qp/max_qp in every mode except CQP). max_qp is a quality floor.
++      if (config::video.vaapi.min_qp > 0) {
++        ctx->qmin = config::video.vaapi.min_qp;
++      }
++      if (config::video.vaapi.max_qp > 0) {
++        ctx->qmax = config::video.vaapi.max_qp;
++      }
++
++      if (config::video.vaapi.rc_mode == 3) {
++        // vaapi_rc_mode = 3: constant QP, bitrate unbounded
++        BOOST_LOG(info) << "Using CQP with qp "sv << config::video.qp;
++        av_dict_set_int(options, "qp", config::video.qp, 0);
++      } else if (config::video.vaapi.strict_rc_buffer ||
            (vendor && strstr(vendor, "Intel")) ||
            ctx->codec_id == AV_CODEC_ID_AV1) {
 -        ctx->rc_buffer_size = ctx->bit_rate * ctx->framerate.den / ctx->framerate.num;
@@ -209,24 +286,26 @@ index 525ef76..d0b38a0 100644
          } else {
            BOOST_LOG(warning) << "Using CQP with single frame VBV size"sv;
 diff --git a/src_assets/common/assets/web/config.html b/src_assets/common/assets/web/config.html
-index 513932a..eb91d2c 100644
+index 513932a..951ce1e 100644
 --- a/src_assets/common/assets/web/config.html
 +++ b/src_assets/common/assets/web/config.html
-@@ -331,6 +331,9 @@
+@@ -331,6 +331,11 @@
              name: "VA-API Encoder",
              options: {
                "vaapi_strict_rc_buffer": "disabled",
 +              "vaapi_vbv_frames": "1",
 +              "vaapi_rc_mode": "0",
++              "vaapi_max_qp": "0",
++              "vaapi_min_qp": "0",
 +              "vaapi_low_power": "-1",
              },
            },
            {
 diff --git a/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue b/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
-index 063bba4..ce513be 100644
+index 063bba4..6fe79e4 100644
 --- a/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
 +++ b/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
-@@ -19,6 +19,36 @@ const config = ref(props.config)
+@@ -19,6 +19,51 @@ const config = ref(props.config)
                v-model="config.vaapi_strict_rc_buffer"
                default="false"
      ></Checkbox>
@@ -246,8 +325,23 @@ index 063bba4..ce513be 100644
 +        <option value="0">{{ $t('_common.auto') }}</option>
 +        <option value="1">{{ $t('config.vaapi_rc_vbr') }}</option>
 +        <option value="2">{{ $t('config.vaapi_rc_cbr') }}</option>
++        <option value="3">{{ $t('config.vaapi_rc_cqp') }}</option>
 +      </select>
 +      <div class="form-text">{{ $t('config.vaapi_rc_mode_desc') }}</div>
++    </div>
++
++    <!-- QP limits -->
++    <div class="mb-3">
++      <label for="vaapi_max_qp" class="form-label">{{ $t('config.vaapi_max_qp') }}</label>
++      <input type="number" min="0" max="51" class="form-control" id="vaapi_max_qp" placeholder="0"
++             v-model="config.vaapi_max_qp" />
++      <div class="form-text">{{ $t('config.vaapi_max_qp_desc') }}</div>
++    </div>
++    <div class="mb-3">
++      <label for="vaapi_min_qp" class="form-label">{{ $t('config.vaapi_min_qp') }}</label>
++      <input type="number" min="0" max="51" class="form-control" id="vaapi_min_qp" placeholder="0"
++             v-model="config.vaapi_min_qp" />
++      <div class="form-text">{{ $t('config.vaapi_min_qp_desc') }}</div>
 +    </div>
 +
 +    <!-- Low power encoder -->
@@ -264,19 +358,24 @@ index 063bba4..ce513be 100644
  </template>
  
 diff --git a/src_assets/common/assets/web/public/assets/locale/en.json b/src_assets/common/assets/web/public/assets/locale/en.json
-index 1165ed8..78ba7e1 100644
+index 1165ed8..ea61058 100644
 --- a/src_assets/common/assets/web/public/assets/locale/en.json
 +++ b/src_assets/common/assets/web/public/assets/locale/en.json
-@@ -381,6 +381,16 @@
+@@ -381,6 +381,21 @@
      "upnp_desc": "Automatically configure port forwarding for streaming over the Internet",
      "vaapi_strict_rc_buffer": "Strictly enforce frame bitrate limits for H.264/HEVC on AMD GPUs",
      "vaapi_strict_rc_buffer_desc": "Enabling this option can avoid dropped frames over the network during scene changes, but video quality may be reduced during motion.",
 +    "vaapi_vbv_frames": "VBV size in frames (Intel, AV1, or strict RC buffer)",
 +    "vaapi_vbv_frames_desc": "How many frames' worth of bitrate a single frame may use. 1 (default) keeps every frame within one frame's share, which leaves a scene change coarse until the picture moves again; larger values let the first frame after a scene change use more bits.",
 +    "vaapi_rc_mode": "Rate control (Intel, AV1, or strict RC buffer)",
-+    "vaapi_rc_mode_desc": "Auto uses VBR with a 1-frame VBV and CBR otherwise. CBR keeps spending bits on still frames (they sharpen over time), VBR does not.",
++    "vaapi_rc_mode_desc": "Auto uses VBR with a 1-frame VBV and CBR otherwise. CQP codes every frame at the QP setting with no bitrate limit.",
 +    "vaapi_rc_vbr": "VBR (Variable Bitrate)",
 +    "vaapi_rc_cbr": "CBR (Constant Bitrate)",
++    "vaapi_rc_cqp": "CQP (Constant QP, uses the QP setting; bitrate unbounded)",
++    "vaapi_max_qp": "Maximum QP (quality floor)",
++    "vaapi_max_qp_desc": "Highest quantizer the rate control may use (1-51, 0 = driver default). A lower value keeps the first frame after a scene change sharper at the cost of exceeding the bitrate.",
++    "vaapi_min_qp": "Minimum QP",
++    "vaapi_min_qp_desc": "Lowest quantizer the rate control may use (1-51, 0 = driver default).",
 +    "vaapi_low_power": "Low power encoder",
 +    "vaapi_low_power_desc": "Auto prefers the low power (LP) encode entrypoint when the driver offers it. Off forces the full encoder, which may have better rate control; On uses only the LP entrypoint.",
 +    "vaapi_low_power_off": "Off (full encoder)",
