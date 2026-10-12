@@ -1,0 +1,40 @@
+From: moonlight-qt PR #1453 (https://github.com/moonlight-stream/moonlight-qt/pull/1453)
+Subject: Add key codes for audio & multimedia control keys
+
+Maps SDL media scancodes (mute, volume up/down, play, stop, next, prev)
+to the Windows virtual-key codes VK_VOLUME_* / VK_MEDIA_* so Sunshine
+receives them. Unmerged upstream as of 2026-09-12 (issue #1254).
+
+diff --git a/app/streaming/input/keyboard.cpp b/app/streaming/input/keyboard.cpp
+index a501cdb67..19215abe9 100644
+--- a/app/streaming/input/keyboard.cpp
++++ b/app/streaming/input/keyboard.cpp
+@@ -378,6 +378,28 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
+             case SDL_SCANCODE_AC_HOME:
+                 keyCode = 0xAC;
+                 break;
++            case SDL_SCANCODE_MUTE:
++            case SDL_SCANCODE_AUDIOMUTE:
++                keyCode = 0xAD;
++                break;
++            case SDL_SCANCODE_VOLUMEDOWN:
++                keyCode = 0xAE;
++                break;
++            case SDL_SCANCODE_VOLUMEUP:
++                keyCode = 0xAF;
++                break;
++            case SDL_SCANCODE_AUDIONEXT:
++                keyCode = 0xB0;
++                break;
++            case SDL_SCANCODE_AUDIOPREV:
++                keyCode = 0xB1;
++                break;
++            case SDL_SCANCODE_AUDIOSTOP:
++                keyCode = 0xB2;
++                break;
++            case SDL_SCANCODE_AUDIOPLAY:
++                keyCode = 0xB3;
++                break;
+             case SDL_SCANCODE_SEMICOLON:
+                 keyCode = 0xBA;
+                 break;

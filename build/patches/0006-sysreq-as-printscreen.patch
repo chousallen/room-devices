@@ -1,0 +1,20 @@
+Subject: Send SysReq as PrintScreen (VK_SNAPSHOT)
+
+SDL 2.32's Linux evdev table reports the PrintScreen key of some PC
+keyboards (here: the HyperX on the Pi) as SDL_SCANCODE_SYSREQ. Stock
+moonlight-qt 6.1.0 has no case for it, so the key is logged as
+"Unhandled button event: 154" and dropped. Send it as VK 0x2C like
+SDL_SCANCODE_PRINTSCREEN; Sunshine/inputtino maps 0x2C to KEY_SYSRQ.
+
+diff --git a/app/streaming/input/keyboard.cpp b/app/streaming/input/keyboard.cpp
+index 19215ab..4ee8ed2 100644
+--- a/app/streaming/input/keyboard.cpp
++++ b/app/streaming/input/keyboard.cpp
+@@ -281,6 +281,7 @@ void SdlInputHandler::handleKeyEvent(SDL_KeyboardEvent* event)
+                 keyCode = 0x2B;
+                 break;
+             case SDL_SCANCODE_PRINTSCREEN:
++            case SDL_SCANCODE_SYSREQ:
+                 keyCode = 0x2C;
+                 break;
+             case SDL_SCANCODE_INSERT:
