@@ -229,6 +229,33 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   unsupported upstream. A Qt 5 build from source (`build/Dockerfile`, arm64 emulation on the
   laptop, ~10 min) is the fallback: `build/out/moonlight-qt-pi_*.deb`.
 - `moonlight.service` needs `XDG_RUNTIME_DIR=/run/user/1000` or it has no sound.
+- **Scene-change blur (2026-10-13): Sunshine on Intel always uses a one-frame VBV.** `src/platform/linux/vaapi.cpp`
+  sets `rc_buffer_size = bit_rate / fps` + VBR for every Intel GPU (and AV1), regardless of `vaapi_strict_rc_buffer`
+  (that key only matters on other vendors). At the 39 Mbps Sunshine actually uses for a 50000 kbps client that is
+  ~81 kB per frame. Measured with `tools/stream-frame-sizes.py` (bytes per `frameIndex` from a Pi-side
+  `tcpdump -w` of `udp and src port 47998`): after a full-screen change the encoder sends ~4 frames at 75-132 kB,
+  then every identical frame is 7.0 kB forever — the Intel LP (low-power) encoder never refines a still picture,
+  so the first frames after a window switch are the final quality until something moves. Sunshine sent 60 fps
+  of 7 kB frames while a full-screen photo sat still (KMS capture has no damage check), so `minimum_fps_target`
+  is irrelevant here.
+  Patch `laptop/sunshine-patches/0003-vaapi-rc-options.patch` adds `vaapi_vbv_frames` (VBV size in frames,
+  default 1), `vaapi_rc_mode` (0 auto = VBR for 1 frame / CBR for more, 1 VBR, 2 CBR) and `vaapi_low_power`
+  (-1 auto, 0 full encoder, 1 LP; vainfo lists both EncSlice and EncSliceLP for HEVC on the Iris Xe). New keys
+  must also be added to `config.html`, `configs/tabs/encoders/VAAPIEncoder.vue`, `locale/en.json` and
+  `docs/configuration.md`, or the build's `ConfigConsistencyTest` fails. Build: `sunshine-build/build3.sh` on the
+  laptop (same Docker recipe, tag `sunshine-vbv-build`), output `sunshine-vbv-2026.1013.*.deb`; the installed
+  build (2026.1013.025021) carries patches 0001+0002+0003.
+  Measured at 39 Mbps, bytes of the first frame after a full-screen change / total over the next 8 frames:
+  LP 1-frame VBV (stock) 132 kB / ~400 kB; LP VBV 4, 8 or 16 + VBR all ~360 kB / 500-900 kB (the LP encoder's
+  ceiling, VBV size beyond 4 changes nothing); full encoder + VBV 8 + VBR 425 kB / ~1 MB spread over ~8 frames
+  (it keeps refining for 130 ms), 60 fps with 0 drops on the Pi. CBR (the `vaapi_rc_mode = 0` auto choice for
+  VBV > 1) pads every frame to a constant 101 kB = 49 Mbps of filler on a still screen: always set `vaapi_rc_mode = 1`.
+  Still frames stay 4-7 kB in every VBR variant, i.e. no encoder refines a still picture; only the first frames count.
+  Chosen config: `laptop/sunshine/sunshine.conf` (full encoder, VBV 8, VBR) = `~/.config/sunshine/sunshine.conf`.
+  Measure a config: `tcpdump` on the Pi while `eog -f <image>` opens/closes on the laptop
+  (`XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-0`), then `tools/stream-frame-sizes.py`.
+  Restarting `sunshine` more than ~3 times in a minute trips systemd's start limit (`start-limit-hit`, unit
+  shows failed, Moonlight gets ConnectionRefused): `systemctl --user reset-failed sunshine && systemctl --user start sunshine`.
 
 ## Commands
 - Pi audio state: `wpctl status`, `pactl list sink-inputs`, `journalctl --user -u wireplumber`.

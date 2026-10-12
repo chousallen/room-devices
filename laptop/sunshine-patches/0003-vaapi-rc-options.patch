@@ -1,0 +1,286 @@
+diff --git a/docs/configuration.md b/docs/configuration.md
+index 5ef85dc..8bc1bad 100644
+--- a/docs/configuration.md
++++ b/docs/configuration.md
+@@ -2970,6 +2970,111 @@ editing the `conf` file in a text editor. Use the examples as reference.
+     </tr>
+ </table>
+ 
++### vaapi_vbv_frames
++
++<table>
++    <tr>
++        <td>Description</td>
++        <td colspan="2">
++            How many frames' worth of bitrate a single frame may use (the VBV/HRD buffer size in frames).
++            1 keeps every frame within one frame's share of the bitrate, which leaves a scene change coarse
++            until the picture moves again; larger values let the first frame after a scene change use more bits.
++            @note{This option applies to VA-API on Intel GPUs, AV1, or when [vaapi_strict_rc_buffer](#vaapi_strict_rc_buffer) is enabled.}
++        </td>
++    </tr>
++    <tr>
++        <td>Default</td>
++        <td colspan="2">@code{}
++            1
++            @endcode</td>
++    </tr>
++    <tr>
++        <td>Example</td>
++        <td colspan="2">@code{}
++            vaapi_vbv_frames = 4
++            @endcode</td>
++    </tr>
++</table>
++
++### vaapi_rc_mode
++
++<table>
++    <tr>
++        <td>Description</td>
++        <td colspan="2">
++            Rate control mode for the frame-limited VBV path. Auto uses VBR with a 1-frame VBV and CBR
++            with a larger one. CBR keeps spending bits on still frames so they sharpen over time; VBR does not.
++            @note{This option applies to VA-API on Intel GPUs, AV1, or when [vaapi_strict_rc_buffer](#vaapi_strict_rc_buffer) is enabled.}
++        </td>
++    </tr>
++    <tr>
++        <td>Default</td>
++        <td colspan="2">@code{}
++            0
++            @endcode</td>
++    </tr>
++    <tr>
++        <td>Choices</td>
++        <td>0</td>
++        <td>auto</td>
++    </tr>
++    <tr>
++        <td></td>
++        <td>1</td>
++        <td>VBR</td>
++    </tr>
++    <tr>
++        <td></td>
++        <td>2</td>
++        <td>CBR</td>
++    </tr>
++    <tr>
++        <td>Example</td>
++        <td colspan="2">@code{}
++            vaapi_rc_mode = 2
++            @endcode</td>
++    </tr>
++</table>
++
++### vaapi_low_power
++
++<table>
++    <tr>
++        <td>Description</td>
++        <td colspan="2">
++            Which VA-API encode entrypoint to use. Auto prefers the low power (LP) entrypoint when the driver
++            offers it; 0 forces the full encoder; 1 uses only the LP entrypoint.
++        </td>
++    </tr>
++    <tr>
++        <td>Default</td>
++        <td colspan="2">@code{}
++            -1
++            @endcode</td>
++    </tr>
++    <tr>
++        <td>Choices</td>
++        <td>-1</td>
++        <td>auto</td>
++    </tr>
++    <tr>
++        <td></td>
++        <td>0</td>
++        <td>full encoder</td>
++    </tr>
++    <tr>
++        <td></td>
++        <td>1</td>
++        <td>LP only</td>
++    </tr>
++    <tr>
++        <td>Example</td>
++        <td colspan="2">@code{}
++            vaapi_low_power = 0
++            @endcode</td>
++    </tr>
++</table>
++
+ ## Vulkan Encoder
+ 
+ ### vk_tune
+diff --git a/src/config.cpp b/src/config.cpp
+index a79f7d8..248ffc2 100644
+--- a/src/config.cpp
++++ b/src/config.cpp
+@@ -499,6 +499,9 @@ namespace config {
+ 
+     {
+       false,  // strict_rc_buffer
++      1,  // vbv_frames
++      0,  // rc_mode
++      -1,  // low_power
+     },  // vaapi
+ 
+     {
+@@ -1166,6 +1169,9 @@ namespace config {
+     int_f(vars, "vt_realtime", video.vt.vt_realtime, vt::rt_from_view);
+ 
+     bool_f(vars, "vaapi_strict_rc_buffer", video.vaapi.strict_rc_buffer);
++    int_f(vars, "vaapi_vbv_frames", video.vaapi.vbv_frames);
++    int_f(vars, "vaapi_rc_mode", video.vaapi.rc_mode);
++    int_f(vars, "vaapi_low_power", video.vaapi.low_power);
+ 
+     int_f(vars, "vk_tune", video.vk.tune);
+     int_f(vars, "vk_rc_mode", video.vk.rc_mode);
+diff --git a/src/config.h b/src/config.h
+index eb778a3..5cf2b5a 100644
+--- a/src/config.h
++++ b/src/config.h
+@@ -85,6 +85,9 @@ namespace config {
+ 
+     struct {
+       bool strict_rc_buffer;
++      int vbv_frames;  // size of the single-frame VBV window in frames (1 = upstream)
++      int rc_mode;  // 0 = auto (VBR for a 1-frame VBV, CBR otherwise), 1 = vbr, 2 = cbr
++      int low_power;  // -1 = auto (prefer LP), 0 = full encoder, 1 = LP only
+     } vaapi;
+ 
+     struct {
+diff --git a/src/platform/linux/vaapi.cpp b/src/platform/linux/vaapi.cpp
+index 525ef76..d0b38a0 100644
+--- a/src/platform/linux/vaapi.cpp
++++ b/src/platform/linux/vaapi.cpp
+@@ -160,11 +160,17 @@ namespace va {
+       entrypoints.resize(num_eps);
+ 
+       // Sorted in order of descending preference
+-      VAEntrypoint ep_preferences[] = {
+-        VAEntrypointEncSliceLP,
+-        VAEntrypointEncSlice,
+-        VAEntrypointEncPicture
+-      };
++      std::vector<VAEntrypoint> ep_preferences;
++      switch (config::video.vaapi.low_power) {
++        case 0:
++          ep_preferences = {VAEntrypointEncSlice, VAEntrypointEncPicture};
++          break;
++        case 1:
++          ep_preferences = {VAEntrypointEncSliceLP};
++          break;
++        default:
++          ep_preferences = {VAEntrypointEncSliceLP, VAEntrypointEncSlice, VAEntrypointEncPicture};
++      }
+       for (auto ep_pref : ep_preferences) {
+         if (std::find(entrypoints.begin(), entrypoints.end(), ep_pref) != entrypoints.end()) {
+           return ep_pref;
+@@ -283,13 +289,23 @@ namespace va {
+       if (config::video.vaapi.strict_rc_buffer ||
+           (vendor && strstr(vendor, "Intel")) ||
+           ctx->codec_id == AV_CODEC_ID_AV1) {
+-        ctx->rc_buffer_size = ctx->bit_rate * ctx->framerate.den / ctx->framerate.num;
+-
+-        if (rc_attr.value & VA_RC_VBR) {
+-          BOOST_LOG(info) << "Using VBR with single frame VBV size"sv;
++        // vaapi_vbv_frames widens the VBV window: a scene change may then spend that many
++        // frames' worth of bits at once, instead of staying coarse until the picture moves.
++        int vbv_frames = std::max(1, config::video.vaapi.vbv_frames);
++        ctx->rc_buffer_size = (int64_t) ctx->bit_rate * vbv_frames * ctx->framerate.den / ctx->framerate.num;
++
++        // vaapi_rc_mode: 0 = VBR for a single frame VBV (upstream), CBR for a wider one;
++        // 1 = VBR, 2 = CBR. CBR keeps spending bits on still frames (refines them), VBR does not.
++        int rc_mode = config::video.vaapi.rc_mode;
++        bool want_cbr = rc_mode == 2 || (rc_mode == 0 && vbv_frames > 1);
++        if (want_cbr && (rc_attr.value & VA_RC_CBR)) {
++          BOOST_LOG(info) << "Using CBR with "sv << vbv_frames << " frame VBV size"sv;
++          av_dict_set(options, "rc_mode", "CBR", 0);
++        } else if (rc_attr.value & VA_RC_VBR) {
++          BOOST_LOG(info) << "Using VBR with "sv << vbv_frames << " frame VBV size"sv;
+           av_dict_set(options, "rc_mode", "VBR", 0);
+         } else if (rc_attr.value & VA_RC_CBR) {
+-          BOOST_LOG(info) << "Using CBR with single frame VBV size"sv;
++          BOOST_LOG(info) << "Using CBR with "sv << vbv_frames << " frame VBV size"sv;
+           av_dict_set(options, "rc_mode", "CBR", 0);
+         } else {
+           BOOST_LOG(warning) << "Using CQP with single frame VBV size"sv;
+diff --git a/src_assets/common/assets/web/config.html b/src_assets/common/assets/web/config.html
+index 513932a..eb91d2c 100644
+--- a/src_assets/common/assets/web/config.html
++++ b/src_assets/common/assets/web/config.html
+@@ -331,6 +331,9 @@
+             name: "VA-API Encoder",
+             options: {
+               "vaapi_strict_rc_buffer": "disabled",
++              "vaapi_vbv_frames": "1",
++              "vaapi_rc_mode": "0",
++              "vaapi_low_power": "-1",
+             },
+           },
+           {
+diff --git a/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue b/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
+index 063bba4..ce513be 100644
+--- a/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
++++ b/src_assets/common/assets/web/configs/tabs/encoders/VAAPIEncoder.vue
+@@ -19,6 +19,36 @@ const config = ref(props.config)
+               v-model="config.vaapi_strict_rc_buffer"
+               default="false"
+     ></Checkbox>
++
++    <!-- VBV size in frames -->
++    <div class="mb-3">
++      <label for="vaapi_vbv_frames" class="form-label">{{ $t('config.vaapi_vbv_frames') }}</label>
++      <input type="number" min="1" max="60" class="form-control" id="vaapi_vbv_frames" placeholder="1"
++             v-model="config.vaapi_vbv_frames" />
++      <div class="form-text">{{ $t('config.vaapi_vbv_frames_desc') }}</div>
++    </div>
++
++    <!-- Rate control -->
++    <div class="mb-3">
++      <label for="vaapi_rc_mode" class="form-label">{{ $t('config.vaapi_rc_mode') }}</label>
++      <select id="vaapi_rc_mode" class="form-select" v-model="config.vaapi_rc_mode">
++        <option value="0">{{ $t('_common.auto') }}</option>
++        <option value="1">{{ $t('config.vaapi_rc_vbr') }}</option>
++        <option value="2">{{ $t('config.vaapi_rc_cbr') }}</option>
++      </select>
++      <div class="form-text">{{ $t('config.vaapi_rc_mode_desc') }}</div>
++    </div>
++
++    <!-- Low power encoder -->
++    <div class="mb-3">
++      <label for="vaapi_low_power" class="form-label">{{ $t('config.vaapi_low_power') }}</label>
++      <select id="vaapi_low_power" class="form-select" v-model="config.vaapi_low_power">
++        <option value="-1">{{ $t('_common.auto') }}</option>
++        <option value="0">{{ $t('config.vaapi_low_power_off') }}</option>
++        <option value="1">{{ $t('config.vaapi_low_power_on') }}</option>
++      </select>
++      <div class="form-text">{{ $t('config.vaapi_low_power_desc') }}</div>
++    </div>
+   </div>
+ </template>
+ 
+diff --git a/src_assets/common/assets/web/public/assets/locale/en.json b/src_assets/common/assets/web/public/assets/locale/en.json
+index 1165ed8..78ba7e1 100644
+--- a/src_assets/common/assets/web/public/assets/locale/en.json
++++ b/src_assets/common/assets/web/public/assets/locale/en.json
+@@ -381,6 +381,16 @@
+     "upnp_desc": "Automatically configure port forwarding for streaming over the Internet",
+     "vaapi_strict_rc_buffer": "Strictly enforce frame bitrate limits for H.264/HEVC on AMD GPUs",
+     "vaapi_strict_rc_buffer_desc": "Enabling this option can avoid dropped frames over the network during scene changes, but video quality may be reduced during motion.",
++    "vaapi_vbv_frames": "VBV size in frames (Intel, AV1, or strict RC buffer)",
++    "vaapi_vbv_frames_desc": "How many frames' worth of bitrate a single frame may use. 1 (default) keeps every frame within one frame's share, which leaves a scene change coarse until the picture moves again; larger values let the first frame after a scene change use more bits.",
++    "vaapi_rc_mode": "Rate control (Intel, AV1, or strict RC buffer)",
++    "vaapi_rc_mode_desc": "Auto uses VBR with a 1-frame VBV and CBR otherwise. CBR keeps spending bits on still frames (they sharpen over time), VBR does not.",
++    "vaapi_rc_vbr": "VBR (Variable Bitrate)",
++    "vaapi_rc_cbr": "CBR (Constant Bitrate)",
++    "vaapi_low_power": "Low power encoder",
++    "vaapi_low_power_desc": "Auto prefers the low power (LP) encode entrypoint when the driver offers it. Off forces the full encoder, which may have better rate control; On uses only the LP entrypoint.",
++    "vaapi_low_power_off": "Off (full encoder)",
++    "vaapi_low_power_on": "On (LP only)",
+     "vk_rc_cbr": "CBR (Constant Bitrate) (default)",
+     "vk_rc_cqp": "CQP (Constant QP)",
+     "vk_rc_mode": "Rate Control",
