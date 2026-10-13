@@ -26,14 +26,18 @@ Measured over two-minute runs: 100 ms buffer dipped 3 times, 200 ms never. To ex
 `journalctl --user -u rtp-speaker`. For lip-synced laptop video use Moonlight, which carries
 its own audio.
 
-**Laptop screen on the monitor.** From the laptop run `pi-screen start` (mirror this laptop on
-the room monitor), `pi-screen stop` (back to the Moonlight menu) or `pi-screen restart`. Moonlight's menu runs
-full-screen on the Pi's HDMI output (`moonlight.service`); with a keyboard/mouse on the Pi you
-can also pick the laptop there. Sunshine runs on the laptop
-(`app-dev.lizardbyte.app.Sunshine.service`, web UI https://localhost:47990). The stream carries
-the laptop's audio too, so **do not also select "Room-speaker-Pi" while streaming**, or you
-hear everything twice. Extended-desktop (second monitor) mode needs a dummy HDMI/DP plug on the
-laptop and `output_name` set in Sunshine (GNOME 46 has no virtual-monitor tool).
+**Laptop screen on the monitor.** When nothing else is running the monitor shows the Pi Room
+dashboard (`pi-dashboard.service`, repo `~/Dashboard`): a one-page web app in a kiosk browser that says whether the
+laptop answers and whether Sunshine on it is reachable. With the keyboard plugged into the Pi,
+**Enter** starts the stream and **R** checks again; **Ctrl+Alt+Shift+Q** during the stream quits
+it and the dashboard comes back by itself; **Ctrl+Alt+F3** gives a text console, **Ctrl+Alt+F1**
+the dashboard. From the laptop, `pi-screen start` / `stop` / `restart` do the same. Sunshine runs
+on the laptop (`app-dev.lizardbyte.app.Sunshine.service`, web UI https://localhost:47990). The
+stream carries the laptop's audio too, so **do not also select "Room-speaker-Pi" while streaming**,
+or you hear everything twice. Moonlight's own menu is still installed as a fallback
+(`sudo systemctl start moonlight.service` on the Pi). Extended-desktop (second monitor) mode needs
+a dummy HDMI/DP plug on the laptop and `output_name` set in Sunshine (GNOME 46 has no
+virtual-monitor tool).
 
 **Play a video on the monitor with the original quality.** From the laptop:
 `pi-cast movie.mkv` or `pi-cast https://host/video.mp4`; `pi-cast stop` ends it. YouTube-style
@@ -51,7 +55,8 @@ afterwards it reconnects on its own. Bluetooth adds roughly 150–250 ms of dela
 ## Layout
 
 - `pi/` – everything installed on the Pi (`pi/install.sh` applies it): PipeWire/WirePlumber
-  config, systemd units (`moonlight.service`, `pi-player.service`), `pi-play`, boot config copy.
+  config, systemd units (`moonlight*.service`, `pi-player.service`), `pi-play`, boot config copy.
+  The idle-screen dashboard (`pi-dashboard*.service`) is its own repo, `~/Dashboard`.
 - `laptop/` – laptop side (`laptop/install.sh`): the tunnel output device, `pi-cast`.
 - `build/` – Docker recipe that builds `moonlight-qt` for Ubuntu 22.04 arm64 on the laptop
   (`build/out/` is not committed).

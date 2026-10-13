@@ -1,11 +1,12 @@
-# Moonlight (game-streaming receiver) full-screen on the HDMI monitor, no desktop needed.
+# Moonlight's own GUI full-screen on the HDMI monitor, no desktop needed. Since 2026-10-09 the idle screen is
+# pi-dashboard.service; this unit stays installed but disabled as a manual fallback (sudo systemctl start moonlight).
 # Runs as the audio user so its sound goes into that user's PipeWire (mixed with everything else).
 # XDG_RUNTIME_DIR is required or Moonlight has no audio (moonlight-qt issue #804).
 [Unit]
 Description=Moonlight streaming receiver on the monitor
-After=user@1000.service systemd-user-sessions.service
+After=user@1000.service systemd-user-sessions.service pi-dashboard.service
 Wants=user@1000.service
-Conflicts=getty@tty1.service pi-player.service
+Conflicts=getty@tty1.service pi-player.service pi-dashboard.service
 
 [Service]
 # the Pi is shared with other services; keep the decoder/pacer threads ahead of them

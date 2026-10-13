@@ -474,3 +474,18 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `Found unexpected PC "sallen-lenovo-ubuntu" looking for "sallen-lenovo-ubuntu"` at every stream start. Removed
   2026-09-12 (backup `build/out/Moonlight.conf.bak-2026-09-12`). Edit that file only with both Moonlight units stopped:
   moonlight-qt rewrites it on exit. Live Sunshine id: `curl -s http://192.168.0.193:47989/serverinfo` (`<uniqueid>`).
+
+## Dashboard (idle screen on the monitor, since 2026-10-10)
+- Lives in its own repo `~/Dashboard` (page, `pi-dashboard-server` backend, `pi-dashboard.service` +
+  `pi-dashboard-server.service`, the rebuilt `cog` browser package). Read `~/Dashboard/CLAUDE.md` for its facts.
+- Integration kept here: `moonlight-stream.service` / `pi-player.service` `ExecStopPost` start `pi-dashboard.service`
+  (not `moonlight.service`); `moonlight.service` is disabled, kept as a manual fallback, and `Conflicts=`/`After=`
+  `pi-dashboard.service`; `pi-console-keys` `MENU = "pi-dashboard.service"`; `pi-screen status` prints the dashboard
+  state. Install order: this repo's `pi/install.sh`, then `~/Dashboard/install.sh`.
+- The integration reached `main` on 2026-10-14. On 2026-10-13 a `moonlight-stream.service` installed from a tree without it
+  made every stream end on the old Moonlight menu: install the display units only from `main` or a branch based on it.
+- `pi-screen stop` / `systemctl stop moonlight-stream` end with `Result=timeout` or `signal` (Moonlight ignores
+  SIGTERM, 5 s, then SIGKILL); only `exit-code`/`core-dump` means the stream failed to start (patch 0004).
+- Sunshine `/serverinfo` stays `SUNSHINE_SERVER_BUSY` with a `currentgame` id after the Pi client leaves (the
+  desktop session stays open; Moonlight resumes it), so BUSY does not mean "another client".
+

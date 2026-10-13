@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ctrl+Alt+Fx on a keyboard plugged into the Pi (system service, root).
 
-The Moonlight units switch the foreground VT to their own tty (menu: chvt 1, stream: chvt 2), where Qt / SDL put
+The display units switch the foreground VT to their own tty (menu = pi-dashboard, cog: chvt 1; stream: chvt 2), where cog / SDL put
 the keyboard in K_OFF, so the kernel itself never acts on Ctrl+Alt+Fx while either runs.  This service is the
 only thing that does:
   stream running          -> nothing here; Moonlight forwards the combo to the laptop
@@ -15,7 +15,7 @@ import os, select, struct, subprocess, sys, time
 EV_FMT, EV_SIZE, EV_KEY = "llHHi", struct.calcsize("llHHi"), 1
 CTRL, ALT = {29, 97}, {56, 100}
 FKEY = {59: 1, 60: 2, 61: 3, 62: 4, 63: 5, 64: 6, 65: 7, 66: 8, 67: 9, 68: 10, 87: 11, 88: 12}
-MENU, STREAM, PLAYER = "moonlight.service", "moonlight-stream.service", "pi-player.service"
+MENU, STREAM, PLAYER = "pi-dashboard.service", "moonlight-stream.service", "pi-player.service"
 
 
 def log(msg):
