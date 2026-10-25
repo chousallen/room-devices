@@ -94,6 +94,13 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `hciuart.service` stays disabled; pi-bluetooth's `bthelper@hci0` logs "Dependency failed" at boot and
   never runs - harmless. `btusb` USB autosuspend is left at default (`power/control=auto`): during the
   10 min test the dongle stayed `active` and no stutter was seen, so nothing was added.
+- **JLab Play headphones as a second output (2026-10-25).** `51-a2dp-sink.lua` has `bluez5.roles = [ a2dp_sink a2dp_source ]`
+  (sink only before: the Pi then could not send audio to headphones; `bluetoothctl show` lists "Audio Source" only with
+  `a2dp_source`). JLab MAC `67:89:66:37:3C:18`, paired + trusted, sink `bluez_output.67_89_66_37_3C_18.a2dp-sink`, codec AAC.
+  Switch with `pi-audio-out jack|jlab|status` (`pactl set-default-sink`; `wpctl set-default` needs the node id, which changes
+  every WirePlumber restart). Every stream without a fixed target, including the laptop RTP receiver, follows the default; `jlab` also sets the JLab to 100 % (it connects at 50 %).
+  The jack (`priority.session = 2000`) wins when no default is configured. The headphones must not be connected to another
+  device when the Pi connects.
 - **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is
   *active*** (`scripts/monitors/bluez.lua`: monitor created only on `logind get-state == "active"`; with
   `Linger=yes` and no SSH login the state is "lingering"; the Moonlight tty8 session counts as "online", not

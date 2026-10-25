@@ -1,0 +1,29 @@
+#!/bin/sh
+# Choose the Pi's audio output: pi-audio-out jack | jlab | status
+# All streams without a fixed target (the laptop RTP receiver, Bluetooth from the phone)
+# follow the default sink. If the JLab disconnects, WirePlumber falls back to the jack.
+JLAB_MAC=67:89:66:37:3C:18
+JLAB_SINK=bluez_output.$(echo $JLAB_MAC | tr : _).a2dp-sink
+JACK_SINK=alsa_output.room_speaker
+
+case "$1" in
+jack)
+    pactl set-default-sink $JACK_SINK ;;
+jlab)
+    if ! pactl list short sinks | grep -q "$JLAB_SINK"; then
+        bluetoothctl --timeout 15 connect $JLAB_MAC >/dev/null
+        for i in $(seq 10); do
+            pactl list short sinks | grep -q "$JLAB_SINK" && break
+            sleep 1
+        done
+    fi
+    pactl list short sinks | grep -q "$JLAB_SINK" ||
+        { echo "JLab not connected (is it on and not connected to another device?)" >&2; exit 1; }
+    # The headphones come up at 50 %; start every switch at full volume.
+    pactl set-sink-volume $JLAB_SINK 100%
+    pactl set-default-sink $JLAB_SINK ;;
+status|"") ;;
+*)
+    echo "usage: pi-audio-out jack | jlab | status" >&2; exit 2 ;;
+esac
+echo "output: $(pactl get-default-sink)"

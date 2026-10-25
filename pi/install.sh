@@ -34,7 +34,7 @@ sudo install -Dm644 etc/systemd/journald.conf.d/10-size.conf /etc/systemd/journa
 sudo install -m644 etc/ssh/sshd_config.d/10-hardening.conf /etc/ssh/sshd_config.d/10-hardening.conf && sudo sshd -t && sudo systemctl reload ssh
 sudo install -m644 systemd/moonlight.service systemd/moonlight-stream.service systemd/pi-player.service systemd/bt-agent.service systemd/bt-speaker-setup.service \
                    systemd/pi-console-keys.service /etc/systemd/system/
-sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys bin/pi-screen /usr/local/bin/
+sudo install -m755 bin/pi-play bin/pi-player-run bin/bt-speaker-setup bin/pi-console-keys bin/pi-screen bin/pi-audio-out /usr/local/bin/
 # The Moonlight menu owns tty1 (Ctrl+Alt+F1), the stream tty2; text consoles are tty3-6.
 # Mask BOTH the static getty and the on-demand autovt for tty1/tty2, or logind respawns a login
 # prompt on the menu/stream VT and it resets the K_OFF keyboard mode SDL/Qt set (Ctrl+Alt+Fx would
