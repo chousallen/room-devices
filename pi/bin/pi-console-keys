@@ -4,13 +4,15 @@
 The display units switch the foreground VT to their own tty (menu = pi-dashboard, cog: chvt 1; stream: chvt 2), where cog / SDL put
 the keyboard in K_OFF, so the kernel itself never acts on Ctrl+Alt+Fx while either runs.  This service is the
 only thing that does:
-  stream running, on tty2 -> F3..F6: chvt n, the stream keeps running in the background (SDL holds tty2 in
-                             VT_PROCESS mode: it gives up DRM master on leave, takes it back on return);
-                             other keys nothing.  Moonlight (patch 0007) never forwards the combo to the laptop.
-  stream running, console -> F2..F6: the kernel switches by itself (F2 = back to the stream);
-                             F1, F7..F12: chvt 2 (back to the stream instead of a blank VT)
+  stream (tty2) or menu (tty1) running, its VT in front:
+                          -> F3..F6: chvt n; it keeps running in the background and logind's autovt puts a login
+                             on ttyn.  Both VTs are in VT_PROCESS mode (stream: SDL, menu: logind for cage's
+                             session), so DRM master is given up on leave and taken back on return.  Other keys
+                             nothing.  Moonlight (patch 0007) never forwards the combo to the laptop.
+  stream or menu running, a console in front:
+                          -> F3..F6 and its own F-key: the kernel switches by itself;
+                             any other key: chvt back to it instead of a blank VT
   player running          -> nothing
-  menu running, F2..F6    -> stop the menu (frees the display) and chvt n; logind's autovt puts a login on ttyn
   nothing running, F1     -> start the menu (its ExecStartPre does chvt 1); F7..F12 do the same (no blank VTs)
   nothing running, F2..F6 -> nothing; the console is in normal mode and the kernel switches by itself
 Reads every /dev/input/event* (non-exclusive, rescanned every 2 s for hotplug).  Pure stdlib.
@@ -39,27 +41,22 @@ def foreground_vt():
 
 def handle(n):
     menu, stream, player = active(MENU, STREAM, PLAYER)
-    if stream:
-        on_stream = foreground_vt() == "tty2"
-        if on_stream and 3 <= n <= 6:
-            log(f"Ctrl+Alt+F{n}: stream in front -> chvt {n}, stream keeps running")
-            subprocess.run(["chvt", str(n)])
-        elif not on_stream and (n == 1 or n >= 7):
-            log(f"Ctrl+Alt+F{n}: console while streaming -> chvt 2 (back to the stream)")
-            subprocess.run(["chvt", "2"])
-        else:
-            log(f"Ctrl+Alt+F{n}: stream running, nothing to do here")
-        return
     if player:
         log(f"Ctrl+Alt+F{n}: player running, ignored")
         return
-    if menu:
-        if 2 <= n <= 6:
-            log(f"Ctrl+Alt+F{n}: menu running -> stop menu, chvt {n}")
-            subprocess.run(["systemctl", "stop", MENU])
-            subprocess.run(["chvt", str(n)])
+    if stream or menu:
+        name, home = ("stream", 2) if stream else ("menu", 1)
+        if foreground_vt() == f"tty{home}":
+            if 3 <= n <= 6:
+                log(f"Ctrl+Alt+F{n}: {name} in front -> chvt {n}, {name} keeps running")
+                subprocess.run(["chvt", str(n)])
+            else:
+                log(f"Ctrl+Alt+F{n}: {name} in front, nothing to do here")
+        elif n == home or 3 <= n <= 6:
+            log(f"Ctrl+Alt+F{n}: console while {name} runs, kernel switches by itself")
         else:
-            log(f"Ctrl+Alt+F{n}: menu running, ignored")
+            log(f"Ctrl+Alt+F{n}: console while {name} runs -> chvt {home} (back to the {name})")
+            subprocess.run(["chvt", str(home)])
         return
     if n == 1 or n >= 7:
         log(f"Ctrl+Alt+F{n}: console -> start menu")

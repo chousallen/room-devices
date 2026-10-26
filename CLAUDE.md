@@ -468,6 +468,13 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   reconnect. From the console the kernel itself handles Ctrl+Alt+F2 (back to the stream); F1/F7..F12 make
   `pi-console-keys` `chvt 2` (tty1 would be blank). Patch `0007-pi-vt-switch.patch`: Moonlight drops Ctrl+Alt+F1..F12 instead
   of forwarding it, and logs the EACCES once per run (stock: 60 lines/s while away).
+  **Same for the dashboard since 2026-10-27:** `pi-console-keys` treats tty1 (dashboard) like tty2 (stream): F3..F6
+  -> `chvt n`, cage + cog keep running (same PID across switches). tty1 is in VT_PROCESS mode owned by **logind**
+  (`VT_GETMODE` relsig/acqsig 34/35 = SIGRTMIN/+1) because cage's `PAMName=login` session took control, so logind moves
+  DRM master; cage's own switching (`cage -s`) is not used. A `chvt` within ~1 s of cage starting killed it
+  ("drmAuthMagic failed: Permission denied", "Unable to create the wlroots allocator"; `Restart=` brought it back).
+  The dashboard server refuses `/api/blank` with 409 unless tty1 is in front (~/Dashboard), or the 10 min idle blank
+  would turn the monitor off under a console.
   Test injector (not in the repo): a 40-line python uinput keyboard (`UI_SET_EVBIT`/`UI_SET_KEYBIT`/`UI_DEV_CREATE`,
   `uinput_user_dev` = 1116 B); uinput is built into this kernel (no module), the listener needs ~2 s to notice the new device.
 
