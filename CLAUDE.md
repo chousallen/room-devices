@@ -538,3 +538,14 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   resets with the adapter, so `bt-speaker-setup` (ExecStartPre of `bt-agent.service`) sets it at boot; check with
   `hciconfig hci0 lm` (expect `ACCEPT CENTRAL`). `bluetoothctl connect` to the JLab after a disconnect failed twice with
   `br-connection-page-timeout` (headphones had gone to sleep).
+- **Laptop -> JLab sub-second stutters under laptop load (measured 2026-10-26 23:19-23:30).** Pi side clean (0 xruns,
+  RTP gaps <= 65 ms against the 200 ms receiver buffer). The laptop's `pi-speaker-rtp` journal showed
+  `expected N != timestamp M` (module-rtp audio.c: the sender's stream missed whole graph cycles, diff 128/256/..
+  frames; the skipped span is never sent = a hole on the Pi) at ~1/min idle and 27-53/min while a 20-thread Docker
+  compile ran (load 27); laptop `pw-top` ERR: spotify 606, pi_speaker 48, sunshine 41, java 26. The sender already runs
+  RT (pw-data-loop FF 80), so priority is not the lever; the graph cycle was 240 frames (5 ms, Sunshine's audio capture
+  request). Fix: `laptop/pipewire.conf.d/50-min-quantum.conf` (`default.clock.min-quantum = 1024`) +
+  `laptop/pipewire-pulse.conf.d/50-min-quantum.conf` (`pulse.min.req/quantum = 1024/48000`), installed by
+  `laptop/install.sh`; applied live with `pw-metadata -n settings 0 clock.min-quantum 1024` (no restart). Same build
+  still running: 181 misses in the 5 min before, 1 in the 5 min after, all ERR counters frozen. Docker build processes
+  are root in `system.slice` (cgroup v2), so `nice`/`renice` from the user cannot rebalance against them.

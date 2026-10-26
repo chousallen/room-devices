@@ -13,6 +13,9 @@ rm -f ~/.config/pipewire/pipewire.conf.d/60-pi-speaker.conf \
 sudo rm -f /etc/NetworkManager/dispatcher.d/90-pi-speaker-rtp
 install -d ~/.config/pipewire ~/.config/systemd/user ~/.local/bin
 install -m644 pi-speaker-rtp.conf ~/.config/pipewire/pi-speaker-rtp.conf
+install -d ~/.config/pipewire/pipewire.conf.d ~/.config/pipewire/pipewire-pulse.conf.d
+install -m644 pipewire.conf.d/50-min-quantum.conf ~/.config/pipewire/pipewire.conf.d/
+install -m644 pipewire-pulse.conf.d/50-min-quantum.conf ~/.config/pipewire/pipewire-pulse.conf.d/
 install -m644 systemd/user/pi-speaker-rtp.service ~/.config/systemd/user/pi-speaker-rtp.service
 install -m644 systemd/user/pi-speaker-watch.service systemd/user/pi-speaker-watch.timer ~/.config/systemd/user/
 install -m755 pi-speaker-watch ~/.local/bin/pi-speaker-watch
