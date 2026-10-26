@@ -452,14 +452,22 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   2026-09-12 02:01: getty@tty2 up, tty2 in Unicode mode). tty7/tty8 (the earlier choice) needed no masking because
   autovt does not cover them. `pi-console-keys.service` (root,
   `pi/bin/pi-console-keys`, stdlib python reading every `/dev/input/event*`, rescans every 2 s for hotplug) is the only
-  thing acting on the combo: stream or pi-player active -> nothing; menu active + F2..F6 -> `systemctl stop moonlight`
+  thing acting on the combo: pi-player active -> nothing; stream active -> see the 2026-10-26 note below; menu active + F2..F6 -> `systemctl stop moonlight`
   then `chvt n` (logind's autovt spawns `getty@ttyn`, fbcon draws the login once Qt released DRM master); nothing
   active + F1 or F7..F12 -> `systemctl start moonlight`. Verified 2026-09-12 01:52 with a uinput virtual keyboard and by the
   user on the real one: menu -> Ctrl+Alt+F3 -> login prompt on the monitor -> Ctrl+Alt+F1 -> menu. Log:
   `journalctl -u pi-console-keys`. A menu stopped this way shows `failed` (moonlight-qt exits 1 on SIGTERM; cosmetic,
   `Restart=on-failure` does not fire after an explicit stop). Check the stream state: `cat /sys/class/tty/tty0/active`
-  = tty2 and `kbd_mode -C /dev/tty2` = "unknown mode". Console login on the Pi is only reachable from the menu (or with
-  both units stopped), never during a stream: quit the stream first (Ctrl+Alt+Shift+Q, or `pi-screen stop`).
+  = tty2 and `kbd_mode -C /dev/tty2` = "unknown mode".
+  **Since 2026-10-26 (pi13, user: "like switching windows") the combo stays on the Pi during a stream too.** SDL 2.32
+  puts the stream's tty2 in **VT_PROCESS** mode (`VT_GETMODE` on tty2: mode 1, signals 37/38); on VT leave it drops DRM
+  master, on return it takes it back (`KMSDRM_ReleaseVT/AcquireVT`), but it never starts a switch itself. So
+  `pi-console-keys` does `chvt 3..6` on Ctrl+Alt+F3..F6 while tty2 is in front; the stream keeps running in the background
+  (decode continues, `drmModeSetPlane` fails with EACCES = 13). Tested with plain `sudo chvt 3` / `chvt 2` mid-stream on
+  pi12: tty3 login drawn, keys typed there did not reach the laptop, stream picture back on return, 60/60 rendered, no
+  reconnect. From the console the kernel itself handles Ctrl+Alt+F2 (back to the stream); F1/F7..F12 make
+  `pi-console-keys` `chvt 2` (tty1 would be blank). Patch `0007-pi-vt-switch.patch`: Moonlight drops Ctrl+Alt+F1..F12 instead
+  of forwarding it, and logs the EACCES once per run (stock: 60 lines/s while away).
   Test injector (not in the repo): a 40-line python uinput keyboard (`UI_SET_EVBIT`/`UI_SET_KEYBIT`/`UI_DEV_CREATE`,
   `uinput_user_dev` = 1116 B); uinput is built into this kernel (no module), the listener needs ~2 s to notice the new device.
 
