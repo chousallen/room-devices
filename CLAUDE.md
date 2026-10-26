@@ -496,3 +496,8 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
 - Sunshine `/serverinfo` stays `SUNSHINE_SERVER_BUSY` with a `currentgame` id after the Pi client leaves (the
   desktop session stays open; Moonlight resumes it), so BUSY does not mean "another client".
 
+- **Phone needs 2-3 tries to connect (2026-10-26):** the phone is `Trusted: no`, so every connection goes through
+  `bt-agent` authorization (`bt-agent: Device: Allen's A55 ... for UUID 0000110d` 20:12:20), then bluetoothd logged
+  `SET_CONFIGURATION request rejected: Stream End Point in Use (19)` 20:12:42 and `Refusing unexpected connect`
+  20:13:10 before the stream fd came up at 20:13:44 (84 s). Fix applied 2026-10-26 22:0x: `bluetoothctl trust 58:79:E0:BE:D1:5B` (bluez keeps it in
+  `/var/lib/bluetooth/<adapter>/<phone>/info`, not in this repo); first-try connects not yet confirmed.
