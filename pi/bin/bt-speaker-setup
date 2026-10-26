@@ -32,6 +32,11 @@ prop() { busctl set-property org.bluez "/org/bluez/$1" org.bluez.Adapter1 "$2" "
 # bluetoothd may register the adapter object a little after its unit is active
 for i in $(seq 1 30); do prop "$HCI" Powered b true 2>/dev/null && break; sleep 1; done
 prop "$HCI" Powered b true
+# Stay master (CENTRAL) on every link. With the phone as master of its link and the Pi as master of the
+# JLab link the dongle runs a scatternet and the phone's audio drops to half rate for 15-20 s every
+# 2-3 min (measured 2026-10-26). A role-switch request is refused by the controller (0x21); only the
+# kernel link mode prevents the phone from taking master at connection time. Check: hcitool con -> CENTRAL.
+hciconfig "$HCI" lm master,accept
 prop "$HCI" Alias s "$ALIAS"
 prop "$HCI" Discoverable b true
 prop "$HCI" Pairable b true

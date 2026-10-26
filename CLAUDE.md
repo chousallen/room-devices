@@ -501,3 +501,24 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `SET_CONFIGURATION request rejected: Stream End Point in Use (19)` 20:12:42 and `Refusing unexpected connect`
   20:13:10 before the stream fd came up at 20:13:44 (84 s). Fix applied 2026-10-26 22:0x: `bluetoothctl trust 58:79:E0:BE:D1:5B` (bluez keeps it in
   `/var/lib/bluetooth/<adapter>/<phone>/info`, not in this repo); first-try connects not yet confirmed.
+- **Phone stutter with the JLab connected (measured 2026-10-26 20:22-20:41, `btmon` + `tools/btsnoop-gaps.py`):**
+  with the phone (Pi = PERIPHERAL, handle 2) and the JLab (Pi = CENTRAL, handle 4) both connected, the dongle runs a
+  scatternet; the phone's aptX packet rate fell from 66-70 to 21-32 pkt/s for 16-20 s about every 2-3 min (20:24:19,
+  20:26:57, 20:27:28, 20:29-20:30 degraded to 31-39), no AVDTP SUSPEND, no Mode Change, RSSI -5..-15 dBm, Pi->JLab
+  TX steady at 47 pkt/s, xruns 0, nothing in any journal. After `bluetoothctl disconnect 67:89:66:37:3C:18`
+  (20:30:50): 0 low seconds in 8.5 min; the only hole (20:39:16, 101 s) was a phone-side sniff = app pause. So the
+  stutter is the dongle's scatternet scheduling, not interference. aptX A2DP payload has no RTP header (packets start
+  `07 13 08 ..`), so RTP sequence counting does not apply; `hcitool rssi` for the JLab returns 0 (not implemented).
+  `hcitool con` shows the roles. The phone's AFH map on 2026-10-26 used only 26 of 79 channels (read with
+  `hcitool cmd 0x05 0x0006 <handle> 0x00`). **Fixed (live, not yet persistent) 2026-10-26 22:02 by making the dongle
+  master on both links:** `hcitool sr <phone> master` is refused by the controller itself (Command Status
+  `Role Change Not Allowed (0x21)`), and a Pi-initiated `bluetoothctl connect` still ends PERIPHERAL because the phone
+  requests a role switch and the kernel allows it; disabling RSWITCH in the link policy (`hciconfig hci0 lp HOLD,SNIFF,PARK`)
+  did not stop that either. What works: `sudo hciconfig hci0 lm master,accept` (kernel `link_mode` HCI_LM_MASTER: no
+  role switch allowed in Create Connection / incoming connections answered as central), then disconnect + `bluetoothctl
+  connect <phone>` -> `hcitool con` shows CENTRAL for both the phone and the JLab (the JLab connected incoming afterwards
+  and the Pi stayed CENTRAL). 6 min capture with the phone streaming aptX and the Pi streaming AAC to the JLab at the same
+  time (22:14-22:20): 0 low seconds, the only hole was an AVDTP SUSPEND/START pair (app pause). The link mode is a kernel setting that
+  resets with the adapter, so `bt-speaker-setup` (ExecStartPre of `bt-agent.service`) sets it at boot; check with
+  `hciconfig hci0 lm` (expect `ACCEPT CENTRAL`). `bluetoothctl connect` to the JLab after a disconnect failed twice with
+  `br-connection-page-timeout` (headphones had gone to sleep).
