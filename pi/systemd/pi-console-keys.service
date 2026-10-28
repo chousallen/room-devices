@@ -1,5 +1,5 @@
-# Ctrl+Alt+Fx on the Pi's own keyboard: leave the menu for a text console and come back (see pi/bin/pi-console-keys).
-# While the stream runs it does nothing, so the combo only reaches the laptop.
+# Ctrl+Alt+Fx on the Pi's own keyboard: switch between the dashboard / stream and a text console
+# (see pi/bin/pi-console-keys). Moonlight (patch 0007) never forwards the combo to the laptop.
 [Unit]
 Description=Ctrl+Alt+Fx handling for the Pi keyboard (menu <-> console)
 After=systemd-udevd.service

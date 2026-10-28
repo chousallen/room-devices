@@ -464,10 +464,22 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   master, on return it takes it back (`KMSDRM_ReleaseVT/AcquireVT`), but it never starts a switch itself. So
   `pi-console-keys` does `chvt 3..6` on Ctrl+Alt+F3..F6 while tty2 is in front; the stream keeps running in the background
   (decode continues, `drmModeSetPlane` fails with EACCES = 13). Tested with plain `sudo chvt 3` / `chvt 2` mid-stream on
-  pi12: tty3 login drawn, keys typed there did not reach the laptop, stream picture back on return, 60/60 rendered, no
+  pi12: tty3 login drawn, stream picture back on return, 60/60 rendered, no
   reconnect. From the console the kernel itself handles Ctrl+Alt+F2 (back to the stream); F1/F7..F12 make
   `pi-console-keys` `chvt 2` (tty1 would be blank). Patch `0007-pi-vt-switch.patch`: Moonlight drops Ctrl+Alt+F1..F12 instead
   of forwarding it, and logs the EACCES once per run (stock: 60 lines/s while away).
+  **Keys typed on a Pi console DID reach the laptop until pi14 (2026-10-28).** SDL 2.32 KMSDRM keeps reading
+  `/dev/input/event*` while its VT is in the background (`SDL_EVDEV_Poll` has no VT check, `kbd_vt_update` only acks the
+  switch) and posts no focus event, and Moonlight's `handleKeyEvent` has no focus check either. Patch
+  `0008-pi-input-only-when-vt-in-front.patch` (pi14): `SdlInputHandler::isOwnVtInFront()` takes the own VT from the minor
+  of stdin (`TTYPath=/dev/tty2` in the unit) and asks `VT_GETSTATE` (works unprivileged on the unit's tty); the session
+  event loop drops KEYDOWN / TEXTINPUT / mouse motion, buttons, wheel / gamepad / finger-down events while another VT is
+  in front. **Key and button releases always pass** so the Ctrl+Alt held during the switch is released on the laptop and
+  nothing stays stuck (a release for a key the laptop never saw pressed is harmless). Log lines once per transition:
+  "VT 3 in front: input to the host blocked" / "VT 2 back in front: input to the host resumed", and at start
+  "Stdin is VT 2: ...". `EVIOCGRAB` in `pi-console-keys` was not an option (an exclusive grab also takes the keys away
+  from the console). Check from the laptop: `tools/input-latency.py capture /dev/input/eventN out` on the
+  `Keyboard passthrough` uinput device while typing on the Pi console.
   **Same for the dashboard since 2026-10-27:** `pi-console-keys` treats tty1 (dashboard) like tty2 (stream): F3..F6
   -> `chvt n`, cage + cog keep running (same PID across switches). tty1 is in VT_PROCESS mode owned by **logind**
   (`VT_GETMODE` relsig/acqsig 34/35 = SIGRTMIN/+1) because cage's `PAMName=login` session took control, so logind moves

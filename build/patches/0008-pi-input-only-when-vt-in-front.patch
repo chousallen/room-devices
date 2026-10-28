@@ -1,0 +1,135 @@
+Subject: Forward input to the host only while the stream's VT is in front
+
+On the Pi the stream runs on tty2 and pi-console-keys switches to a text
+console with Ctrl+Alt+F3..F6 while the stream keeps running. SDL 2.32 keeps
+reading the evdev devices while its VT is in the background and posts no
+focus event, so everything typed on the Pi console also reached the host.
+Check VT_GETSTATE on stdin (the unit's TTYPath) and drop key presses,
+mouse motion / buttons / wheel and gamepad input while another VT is in
+front. Releases still pass so nothing held across the switch stays stuck.
+
+diff --git a/app/streaming/input/input.cpp b/app/streaming/input/input.cpp
+index 95db06e..7f9d3c9 100644
+--- a/app/streaming/input/input.cpp
++++ b/app/streaming/input/input.cpp
+@@ -9,6 +9,14 @@
+ #include <QDir>
+ #include <QGuiApplication>
+ 
++#ifdef Q_OS_LINUX
++#include <linux/vt.h>
++#include <sys/ioctl.h>
++#include <sys/stat.h>
++#include <sys/sysmacros.h>
++#include <unistd.h>
++#endif
++
+ SdlInputHandler::SdlInputHandler(StreamingPreferences& prefs, int streamWidth, int streamHeight)
+     : m_MultiController(prefs.multiController),
+       m_GamepadMouse(prefs.gamepadMouse),
+@@ -298,6 +306,60 @@ void SdlInputHandler::notifyFocusLost()
+     raiseAllKeys();
+ }
+ 
++// On the Pi the stream runs on its own Linux VT (systemd TTYPath=/dev/tty2 on stdin) and
++// pi-console-keys switches to a text console with Ctrl+Alt+Fx while the stream keeps
++// running in the background. SDL keeps reading the evdev devices while our VT is away,
++// so the session forwards input to the host only while our VT is the foreground one.
++// Without a VT on stdin (desktop builds, the menu) this always returns true.
++bool SdlInputHandler::isOwnVtInFront()
++{
++#ifdef Q_OS_LINUX
++    static int ownVt = -2;      // -2 = not probed yet, -1 = stdin is not a VT
++    static bool blocked = false;
++
++    if (ownVt == -2) {
++        struct stat st;
++        ownVt = -1;
++        if (fstat(STDIN_FILENO, &st) == 0 && S_ISCHR(st.st_mode) &&
++                major(st.st_rdev) == 4 && minor(st.st_rdev) >= 1 && minor(st.st_rdev) <= 63) {
++            ownVt = minor(st.st_rdev);
++        }
++        if (ownVt > 0) {
++            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                        "Stdin is VT %d: input goes to the host only while it is in front",
++                        ownVt);
++        }
++        else {
++            SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                        "Stdin is not a VT: input to the host is not gated on the foreground VT");
++        }
++    }
++    if (ownVt < 0) {
++        return true;
++    }
++
++    struct vt_stat vts;
++    if (ioctl(STDIN_FILENO, VT_GETSTATE, &vts) != 0) {
++        return true;
++    }
++
++    bool inFront = vts.v_active == ownVt;
++    if (!inFront && !blocked) {
++        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                    "VT %d in front: input to the host blocked", vts.v_active);
++        blocked = true;
++    }
++    else if (inFront && blocked) {
++        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
++                    "VT %d back in front: input to the host resumed", ownVt);
++        blocked = false;
++    }
++    return inFront;
++#else
++    return true;
++#endif
++}
++
+ bool SdlInputHandler::isCaptureActive()
+ {
+     if (SDL_GetRelativeMouseMode()) {
+diff --git a/app/streaming/input/input.h b/app/streaming/input/input.h
+index ec24070..7487268 100644
+--- a/app/streaming/input/input.h
++++ b/app/streaming/input/input.h
+@@ -105,6 +105,8 @@ public:
+ 
+     void notifyFocusLost();
+ 
++    bool isOwnVtInFront();
++
+     bool isCaptureActive();
+ 
+     bool isSystemKeyCaptureActive();
+diff --git a/app/streaming/session.cpp b/app/streaming/session.cpp
+index 80fb921..eb53ab0 100644
+--- a/app/streaming/session.cpp
++++ b/app/streaming/session.cpp
+@@ -1996,6 +1996,27 @@ void Session::execInternal()
+             continue;
+         }
+ #endif
++        // Pi: while another VT is in front (Ctrl+Alt+Fx console) drop presses and motion so
++        // nothing typed on the Pi console reaches the host. Releases always pass so keys and
++        // buttons held across the switch do not stay stuck on the host.
++        switch (event.type) {
++        case SDL_KEYDOWN:
++        case SDL_TEXTINPUT:
++        case SDL_MOUSEBUTTONDOWN:
++        case SDL_MOUSEMOTION:
++        case SDL_MOUSEWHEEL:
++        case SDL_CONTROLLERBUTTONDOWN:
++        case SDL_CONTROLLERAXISMOTION:
++        case SDL_FINGERDOWN:
++        case SDL_FINGERMOTION:
++            if (!m_InputHandler->isOwnVtInFront()) {
++                continue;
++            }
++            break;
++        default:
++            break;
++        }
++
+         switch (event.type) {
+         case SDL_QUIT:
+             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,

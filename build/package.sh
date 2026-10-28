@@ -2,7 +2,7 @@
 # Runs inside the build container: wraps the built binary into a minimal .deb in /out.
 set -euo pipefail
 VER="${MOONLIGHT_VER:-6.1.0}"
-REV="${PKG_REV:-ubuntu2204pi13}"   # pi13 = + patch 0007 (Ctrl+Alt+Fx stays on the Pi); pi9 = fork HEVC fprintf spam -> AV_LOG_TRACE; pi1 = plain v6.1.0 (system SDL, does not start); pi3 = static SDL 2.32 + patches/0001 DrmVsyncSource; pi8 = + Pi FFmpeg fork (zero-copy)
+REV="${PKG_REV:-ubuntu2204pi14}"   # pi14 = + patch 0008 (input to the host only while the stream VT is in front); pi13 = + patch 0007 (Ctrl+Alt+Fx stays on the Pi); pi9 = fork HEVC fprintf spam -> AV_LOG_TRACE; pi1 = plain v6.1.0 (system SDL, does not start); pi3 = static SDL 2.32 + patches/0001 DrmVsyncSource; pi8 = + Pi FFmpeg fork (zero-copy)
 PKG=/tmp/pkg
 rm -rf "$PKG"; mkdir -p "$PKG/DEBIAN" "$PKG/usr/local/bin" "$PKG/usr/local/lib" "$PKG/usr/share/applications"
 install -m755 /src/app/moonlight "$PKG/usr/local/bin/moonlight-qt"
