@@ -99,6 +99,8 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `a2dp_source`). JLab MAC `67:89:66:37:3C:18`, paired + trusted, sink `bluez_output.67_89_66_37_3C_18.a2dp-sink`, codec AAC.
   Switch with `pi-audio-out jack|jlab|status` (`pactl set-default-sink`; `wpctl set-default` needs the node id, which changes
   every WirePlumber restart). Every stream without a fixed target, including the laptop RTP receiver, follows the default; `jlab` also sets the JLab to 100 % (it connects at 50 %).
+  `bluetoothctl --timeout N <cmd>` always waits the full N s (bluez 5.64 shell.c), so the script uses
+  `busctl call ... org.bluez.Device1 Connect` (returns at once: ~2-3.5 s success, ~1 s failure).
   The jack (`priority.session = 2000`) wins when no default is configured. The headphones must not be connected to another
   device when the Pi connects.
 - **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is

@@ -2,23 +2,28 @@
 # Choose the Pi's audio output: pi-audio-out jack | jlab | status
 # All streams without a fixed target (the laptop RTP receiver, Bluetooth from the phone)
 # follow the default sink. If the JLab disconnects, WirePlumber falls back to the jack.
+# bluez is driven over D-Bus with busctl: `bluetoothctl --timeout N` always waits the full N s.
 JLAB_MAC=67:89:66:37:3C:18
 JLAB_SINK=bluez_output.$(echo $JLAB_MAC | tr : _).a2dp-sink
 JACK_SINK=alsa_output.room_speaker
+
+dev_path() { busctl tree --list org.bluez 2>/dev/null | grep -m1 "/dev_$(echo $JLAB_MAC | tr : _)\$"; }
+has_sink() { pactl list short sinks | grep -q "$JLAB_SINK"; }
+
+DEV=$(dev_path)
+[ -n "$DEV" ] || { echo "JLab $JLAB_MAC is not known to bluetoothd (not paired, or no adapter)" >&2; exit 1; }
 
 case "$1" in
 jack)
     pactl set-default-sink $JACK_SINK ;;
 jlab)
-    if ! pactl list short sinks | grep -q "$JLAB_SINK"; then
-        bluetoothctl --timeout 15 connect $JLAB_MAC >/dev/null
-        for i in $(seq 10); do
-            pactl list short sinks | grep -q "$JLAB_SINK" && break
-            sleep 1
-        done
+    if ! has_sink; then
+        if ! err=$(busctl --timeout=20 call org.bluez "$DEV" org.bluez.Device1 Connect 2>&1); then
+            echo "JLab did not connect: $err (is it switched on, in range, and not connected to another device?)" >&2; exit 1
+        fi
+        for i in $(seq 25); do has_sink && break; sleep 0.2; done
+        has_sink || { echo "JLab connected, but no audio sink appeared" >&2; exit 1; }
     fi
-    pactl list short sinks | grep -q "$JLAB_SINK" ||
-        { echo "JLab not connected (is it on and not connected to another device?)" >&2; exit 1; }
     # The headphones come up at 50 %; start every switch at full volume.
     pactl set-sink-volume $JLAB_SINK 100%
     pactl set-default-sink $JLAB_SINK ;;
