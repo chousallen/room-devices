@@ -101,8 +101,14 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   every WirePlumber restart). Every stream without a fixed target, including the laptop RTP receiver, follows the default; `jlab` also sets the JLab to 100 % (it connects at 50 %).
   `bluetoothctl --timeout N <cmd>` always waits the full N s (bluez 5.64 shell.c), so the script uses
   `busctl call ... org.bluez.Device1 Connect` (returns at once: ~2-3.5 s success, ~1 s failure).
-  The jack (`priority.session = 2000`) wins when no default is configured. The headphones must not be connected to another
-  device when the Pi connects.
+  The jack (`priority.session = 2000`) wins when no default is configured.
+- **JLab while connected to another device (multipoint):** it has 4 A2DP endpoints, 1+3 SBC and 2+4 AAC, one pair per
+  connected source; Discover reports the other device's pair as "In use". bluez 5.64 (and master, checked 2026-11-05) takes
+  remote endpoints from its cache (`/var/lib/bluetooth/<adapter>/cache/<mac>` `[Endpoints]`, `LastUsed=07:02` first) without
+  checking that flag, so it sends Set Configuration to endpoint 2, gets `SEP_IN_USE (0x13)`, and drops the link
+  (`br-connection-create-socket`). Not the link mode: the ACL came up fine with `ACCEPT CENTRAL`. bluez re-reads that cache
+  file at every new connection, so `pi-audio-out jlab` deletes the `[Endpoints]` section (sudo) before connecting; bluez then
+  rediscovers, skips in-use endpoints, picks 4. Measured: 3 of 3 connects while the laptop held the JLab, Pi stays CENTRAL.
 - **WirePlumber 0.4.8 removes the Bluetooth A2DP sink endpoint whenever no logind session of `sallen` is
   *active*** (`scripts/monitors/bluez.lua`: monitor created only on `logind get-state == "active"`; with
   `Linger=yes` and no SSH login the state is "lingering"; the Moonlight tty8 session counts as "online", not

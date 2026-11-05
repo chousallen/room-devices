@@ -18,8 +18,16 @@ jack)
     pactl set-default-sink $JACK_SINK ;;
 jlab)
     if ! has_sink; then
+        # The JLab is multipoint: 4 audio endpoints (1+3 SBC, 2+4 AAC), one pair per connected device.
+        # bluez 5.64 tries the cached endpoints (last used first) without checking the "in use" flag
+        # the headset reports, so while another device holds 1+2 the Pi asks for 2, gets SEP_IN_USE and
+        # gives up. Without a cached list bluez rediscovers and skips in-use endpoints. bluez reads this
+        # cache file at every new connection, so deleting the list here is enough (no restart).
+        ADAPTER=$(busctl get-property org.bluez "${DEV%/*}" org.bluez.Adapter1 Address | tr -d 's "')
+        sudo -n sed -i '/^\[Endpoints\]/,/^$/d' "/var/lib/bluetooth/$ADAPTER/cache/$JLAB_MAC" 2>/dev/null ||
+            echo "warning: could not clear the bluez endpoint cache (sudo); a busy JLab may refuse" >&2
         if ! err=$(busctl --timeout=20 call org.bluez "$DEV" org.bluez.Device1 Connect 2>&1); then
-            echo "JLab did not connect: $err (is it switched on, in range, and not connected to another device?)" >&2; exit 1
+            echo "JLab did not connect: $err (is it switched on and in range?)" >&2; exit 1
         fi
         for i in $(seq 25); do has_sink && break; sleep 0.2; done
         has_sink || { echo "JLab connected, but no audio sink appeared" >&2; exit 1; }
