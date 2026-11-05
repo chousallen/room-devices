@@ -99,6 +99,12 @@ Large files on the laptop go under `/media/sallen/SSD-Programs/` (root disk is n
   `a2dp_source`). JLab MAC `67:89:66:37:3C:18`, paired + trusted, sink `bluez_output.67_89_66_37_3C_18.a2dp-sink`, codec AAC.
   Switch with `pi-audio-out jack|jlab|status` (`pactl set-default-sink`; `wpctl set-default` needs the node id, which changes
   every WirePlumber restart). Every stream without a fixed target, including the laptop RTP receiver, follows the default; `jlab` also sets the JLab to 100 % (it connects at 50 %).
+  The JLab connects only on `jlab` (since 2026-11-05): it is kept `Blocked` in bluez (blocked = it cannot connect when
+  switched on, and bluez's policy plugin stops its 7 reconnect tries after a link loss). `jack` blocks it (= disconnects),
+  `jlab` unblocks it first, and user unit `jlab-guard.service` (`pi-audio-out watch`, `gdbus monitor` on the device) blocks it
+  and sets the jack as default after any other disconnect (power off, range). Match `'org.bluez.Device1'` in that monitor:
+  `org.bluez.MediaControl1` also sends `'Connected': <false>` during every normal connect. Block keeps the link key; unblock +
+  `Device1.Connect` right after works. Untrusting it would not help: `bt-agent` approves every `AuthorizeService`.
   `bluetoothctl --timeout N <cmd>` always waits the full N s (bluez 5.64 shell.c), so the script uses
   `busctl call ... org.bluez.Device1 Connect` (returns at once: ~2-3.5 s success, ~1 s failure).
   The jack (`priority.session = 2000`) wins when no default is configured.

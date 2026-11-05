@@ -1,13 +1,20 @@
 #!/bin/sh
 # Choose the Pi's audio output: pi-audio-out jack | jlab | status
 # All streams without a fixed target (the laptop RTP receiver, Bluetooth from the phone)
-# follow the default sink. If the JLab disconnects, WirePlumber falls back to the jack.
+# follow the default sink.
+#
+# The JLab connects only when `jlab` is run. Otherwise it is blocked in bluez: blocked, it cannot
+# connect itself when switched on, and bluez does not retry after a link loss. `jack` blocks it
+# (which also disconnects it), and `pi-audio-out watch` (user unit jlab-guard.service) blocks it
+# and moves the output back to the jack whenever the link drops for any other reason.
 # bluez is driven over D-Bus with busctl: `bluetoothctl --timeout N` always waits the full N s.
 JLAB_MAC=67:89:66:37:3C:18
 JLAB_SINK=bluez_output.$(echo $JLAB_MAC | tr : _).a2dp-sink
 JACK_SINK=alsa_output.room_speaker
 
 dev_path() { busctl tree --list org.bluez 2>/dev/null | grep -m1 "/dev_$(echo $JLAB_MAC | tr : _)\$"; }
+dev_prop() { busctl get-property org.bluez "$DEV" org.bluez.Device1 "$1" | cut -d' ' -f2; }
+block() { busctl set-property org.bluez "$DEV" org.bluez.Device1 Blocked b "$1"; }
 has_sink() { pactl list short sinks | grep -q "$JLAB_SINK"; }
 
 DEV=$(dev_path)
@@ -15,7 +22,8 @@ DEV=$(dev_path)
 
 case "$1" in
 jack)
-    pactl set-default-sink $JACK_SINK ;;
+    pactl set-default-sink $JACK_SINK
+    block true ;;
 jlab)
     if ! has_sink; then
         # The JLab is multipoint: 4 audio endpoints (1+3 SBC, 2+4 AAC), one pair per connected device.
@@ -26,17 +34,34 @@ jlab)
         ADAPTER=$(busctl get-property org.bluez "${DEV%/*}" org.bluez.Adapter1 Address | tr -d 's "')
         sudo -n sed -i '/^\[Endpoints\]/,/^$/d' "/var/lib/bluetooth/$ADAPTER/cache/$JLAB_MAC" 2>/dev/null ||
             echo "warning: could not clear the bluez endpoint cache (sudo); a busy JLab may refuse" >&2
+        block false
         if ! err=$(busctl --timeout=20 call org.bluez "$DEV" org.bluez.Device1 Connect 2>&1); then
+            block true
             echo "JLab did not connect: $err (is it switched on and in range?)" >&2; exit 1
         fi
         for i in $(seq 25); do has_sink && break; sleep 0.2; done
-        has_sink || { echo "JLab connected, but no audio sink appeared" >&2; exit 1; }
+        has_sink || { block true; echo "JLab connected, but no audio sink appeared" >&2; exit 1; }
     fi
     # The headphones come up at 50 %; start every switch at full volume.
     pactl set-sink-volume $JLAB_SINK 100%
     pactl set-default-sink $JLAB_SINK ;;
+watch)
+    # Long-running (jlab-guard.service). Block at start unless connected, then after every disconnect.
+    [ "$(dev_prop Connected)" = true ] || block true
+    gdbus monitor --system --dest org.bluez --object-path "$DEV" | while read -r line; do
+        # Only the device's own link: org.bluez.MediaControl1 also sends 'Connected': <false> while connecting.
+        case "$line" in *"'org.bluez.Device1'"*"'Connected': <false>"*)
+            block true
+            pactl set-default-sink $JACK_SINK
+            echo "JLab disconnected: blocked, output back to the jack" ;;
+        esac
+    done
+    exit 1 ;;
 status|"") ;;
 *)
     echo "usage: pi-audio-out jack | jlab | status" >&2; exit 2 ;;
 esac
 echo "output: $(pactl get-default-sink)"
+if [ "$(dev_prop Connected)" = true ]; then echo "JLab: connected"
+elif [ "$(dev_prop Blocked)" = true ]; then echo "JLab: blocked (connects only with pi-audio-out jlab)"
+else echo "JLab: not connected, not blocked"; fi

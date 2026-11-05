@@ -1,0 +1,13 @@
+# Keeps the JLab headphones from connecting by themselves: blocks them in bluez at start and after
+# every disconnect, and moves the Pi's output back to the jack. Only `pi-audio-out jlab` unblocks them.
+[Unit]
+Description=JLab headphones connect only via pi-audio-out jlab
+After=pipewire-pulse.service
+
+[Service]
+ExecStart=/usr/local/bin/pi-audio-out watch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

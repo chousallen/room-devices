@@ -25,6 +25,7 @@ install -m644 config/pipewire/rtp-speaker.conf "$H/.config/pipewire/rtp-speaker.
 install -m644 config/wireplumber/main.lua.d/*.lua "$H/.config/wireplumber/main.lua.d/"
 install -m644 config/wireplumber/bluetooth.lua.d/*.lua "$H/.config/wireplumber/bluetooth.lua.d/"
 install -m644 systemd/user/rtp-speaker.service "$H/.config/systemd/user/rtp-speaker.service"
+install -m644 systemd/user/jlab-guard.service "$H/.config/systemd/user/jlab-guard.service"   # JLab connects only via pi-audio-out jlab
 
 echo "== system files"
 sudo install -m644 etc/polkit-1/50-rtkit-sallen.pkla /etc/polkit-1/localauthority/50-local.d/50-rtkit-sallen.pkla
@@ -56,6 +57,7 @@ sudo loginctl enable-linger "$U"
 systemctl --user disable --now pipewire-media-session 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user enable pipewire wireplumber pipewire-pulse.service pipewire-pulse.socket rtp-speaker.service
+systemctl --user enable --now jlab-guard.service
 systemctl --user restart pipewire
 sleep 3; systemctl --user restart rtp-speaker.service
 sleep 2; systemctl --user --no-pager is-active pipewire wireplumber pipewire-pulse rtp-speaker | paste -sd' '
